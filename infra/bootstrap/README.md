@@ -88,9 +88,6 @@ terraform plan -out tfplan
 terraform apply tfplan
 
 cd ../02-databricks
-# Repoet er privat, så Databricks trenger en GitHub-token (fine-grained PAT, Contents: Read,
-# kun dette repoet). Sett den som miljøvariabel, aldri i en fil:
-$env:TF_VAR_github_token = "<github-pat>"
 terraform init
 terraform plan -out tfplan
 terraform apply tfplan
@@ -98,6 +95,18 @@ terraform apply tfplan
 
 `02-databricks` trenger ingen `terraform.tfvars`; alle variabler har standardverdier, og
 workspace-URL og storage-detaljer hentes fra `01-azure` via `terraform_remote_state`.
+
+Repoet er **offentlig**, så Databricks kan klone det uten innlogging, og `databricks_git_credential`
+opprettes ikke. Gjøres repoet privat, trenger Databricks en GitHub-token (fine-grained PAT,
+Contents: Read, kun dette repoet). Sett den som miljøvariabel før `plan`, aldri i en fil:
+
+```powershell
+$env:TF_VAR_github_token = "<github-pat>"
+```
+
+> Merk: en ny SQL warehouse **starter automatisk** når den opprettes. Den stopper selv etter
+> `auto_stop_mins` (10 min), men stopp den gjerne manuelt i UI-et (SQL Warehouses → Stop) for å
+> spare kreditt.
 
 Riving skjer i motsatt rekkefølge: `terraform destroy` i `02-databricks` først, så i `01-azure`.
 State-kontoen fra dette steget slettes til slutt manuelt:
