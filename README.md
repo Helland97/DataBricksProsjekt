@@ -19,4 +19,6 @@ hentes herfra og kopieres ikke inn manuelt.
 
 ## Opprydding
 
-Alt skal kunne rives med `terraform destroy` fra `infra/`. Sjekk kostnadsoversikten i Azure etterpå.
+Alt skal kunne rives med `terraform destroy`, i motsatt rekkefølge av oppsettet: først
+`infra/02-databricks/`, så `infra/01-azure/`. State-kontoen fra `infra/bootstrap/` slettes til slutt
+manuelt. Sjekk kostnadsoversikten i Azure etterpå.
