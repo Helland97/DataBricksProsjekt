@@ -1,0 +1,62 @@
+# --- Terraform ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfplan
+tfplan
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- dlt ---
+.dlt/secrets.toml
+**/.dlt/secrets.toml
+
+# --- dbt ---
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+**/target/
+**/dbt_packages/
+**/logs/
+profiles.yml
+.user.yml
+
+# --- Airflow (lokal) ---
+orchestration/airflow/logs/
+orchestration/airflow/plugins/__pycache__/
+airflow.db
+
+# --- Data / genererte filer ---
+data/
+*.parquet
+*.csv
+
+# --- Editor / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
