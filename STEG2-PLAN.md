@@ -149,12 +149,13 @@ uses, and there's no long-lived secret on disk. Alternatives are a PAT (`access_
 **service principal** with OAuth M2M (`client_id`/`client_secret`) and grants `USE CATALOG`, `USE SCHEMA`,
 `CREATE TABLE`, `MODIFY`, `READ VOLUME`, `WRITE VOLUME` on `bronze` only.
 
-**File format: JSONL instead of Parquet.** dlt prefers Parquet for Databricks, but Windows Smart App Control blocks
-pyarrow's Parquet DLL on this PC. JSONL works with `COPY INTO` as long as timestamps have a time zone (all of ours
-are UTC). It has to be set as the destination's *preferred* format
-(`dlt.destinations.databricks(preferred_loader_file_format="jsonl")`), because `run(loader_file_format=...)`
-doesn't apply to dlt's own `_dlt_pipeline_state` table. Every pipeline gets its destination from
-`databricks_setup.destination("duckdb" | "databricks")`.
+**File format: Parquet, and why it first failed.** Parquet first failed with *"En programkontrollpolicy har
+blokkert denne filen"* on pyarrow's DLL. The cause was uv **hard-linking** packages from its cache into a `.venv`
+inside OneDrive. `link-mode = "copy"` in `ingestion/pyproject.toml` fixed it. (If `.venv` ever gets into a broken
+state, delete it and run `uv sync`.) JSONL is still possible (`DATABRICKS_FILE_FORMAT=jsonl`), but it breaks on
+date-like strings: dlt runs `COPY INTO` with `inferTimestamp=true`, Spark reads `"2026-10-01"` as a TIMESTAMP, and
+the load fails with `DELTA_FAILED_TO_MERGE_FIELDS`. The format is set as the destination's *preferred* format in
+`databricks_setup.destination(...)`, because `run(loader_file_format=...)` doesn't apply to dlt's own state table.
 
 **Check (smoke test):**
 ```powershell
@@ -185,23 +186,43 @@ One resource per endpoint, each with a deliberately chosen strategy:
 | `invoices` | `merge` | `primary_key="invoice_id"`, incremental on `updated_at` | Status changes and duplicates are both handled by the merge. |
 | `gl_entries` | `merge` | `primary_key="entry_id"`, incremental on `updated_at` with **`lag`** | GL entries are in practice append-only, but merge on the key makes re-runs and duplicates harmless. |
 
-Two ways to write the resources. Do the first, and know the second exists:
+Two ways to write the resources. Both are in `ingestion/pipelines/regnskap.py`:
 1. **`rest_api_source`** (declarative config: paginator, `incremental`, `primary_key` per resource). Little
-   code, and it's what you'd use in practice.
-2. **`@dlt.resource` + `requests`** by hand. More code, but you see exactly how the cursor is passed as
-   `updated_since`. Worth writing one resource like this to understand it.
+   code, and it's what you'd use in practice. This is the default for all four resources.
+2. **`@dlt.resource` + `requests`** by hand: `gl_entries_handwritten`, switched on with `--handwritten-gl`. Both
+   share the same cursor in state, so you can swap between them. A real bug was found here: reading
+   `updated_at.last_value` *inside* the paging loop sends a new `updated_since` for page 2, because dlt moves the
+   cursor while rows pass through. Read it once, before paging.
 
-Things to try, one at a time:
+Two more details that matter:
+- **`dedup_sort: desc` on `updated_at`** for `customers` and `invoices`. When an invoice changes status twice between
+  two runs (sent → paid), both versions arrive in the same load. Without `dedup_sort`, dlt can't know which one should win.
+- **`lag` re-reads the last N days on every run.** You can see that in "rows received" (about 100 GL rows a day even
+  though only ~50 are new). The merge on `entry_id` makes the overlap harmless. Lag has to be at least the longest
+  delay in the source (5 days here).
 
-1. **Run day 1–3.** Look at the row counts in bronze and at `_dlt_loads`.
-2. **Run the same day twice.** Row counts must not change (idempotency, section 9).
-3. **Switch `invoices` to `append`** and re-run. You'll get duplicates. Switch back.
-4. **Late rows:** run without `lag`, then count GL entries in bronze against the source. Some are missing.
-   Then add `lag` (e.g. 5 days, in seconds) and re-run. The merge on `entry_id` makes the overlap harmless.
-   Real-world takeaway: a cursor on a timestamp the source sets *at write time* (or an increasing sequence)
-   is safer than a business date.
-5. **Full refresh:** `pipeline.run(..., refresh="drop_sources")` or `dlt pipeline regnskap drop`. When do you
-   need it? (After bugs, or when you change the primary key.)
+**How to run it** (from `ingestion/`, with the API running in another terminal: `uv run uvicorn fake_api.app:app`):
+```powershell
+uv run python -m pipelines.regnskap --day 1-3            # local DuckDB (regnskap_duckdb.duckdb)
+uv run python -m pipelines.regnskap --day 1-3 --destination databricks
+uv run python -m pipelines.regnskap --report             # only print the bronze vs. source table
+```
+After each run a table compares bronze with the source: `missing` (keys not in bronze), `dupes` (keys more than
+once) and `stale` (rows holding an outdated version). All three should be 0. The pipeline is called
+`regnskap_duckdb` or `regnskap_databricks`, with separate state per destination.
+
+Things to try, one at a time (the same experiments are automated in `ingestion/tests/test_pipeline.py`):
+
+1. **Run day 1–3.** `--day 1-3`. Look at the row counts in bronze and at `_dlt_loads`.
+2. **Run the same day twice.** `--day 3`, then `--day 3` again. The table must not change (idempotency).
+3. **Switch `invoices` to `append`.** `--day 4-14 --invoices append`. `dupes` and `stale` go up for invoices.
+   Switching back to merge only cleans keys that arrive again, so finish with step 5.
+4. **Late rows:** `--day 1-12 --gl-lag-days 0 --refresh`. `missing` > 0 for `gl_entries`. Then
+   `--day 1-12 --refresh` (default lag 5 days): 0 missing. Real-world takeaway: a cursor on a timestamp the source
+   sets *at write time* (or an increasing sequence) is safer than one that can arrive late.
+5. **Full refresh:** `--day 12 --refresh` (`refresh="drop_sources"`: drops the tables of the source and resets its
+   cursors, then reloads everything). When do you need it? After bugs, after a period of `append`, or when you
+   change the primary key.
 
 Merge strategies to know about: `delete-insert` (default), `upsert`, and `scd2`. `scd2` on `customers` is a
 nice bonus, but the plan is to do SCD2 with **dbt snapshots** in step 3, so use plain merge here.
@@ -224,14 +245,14 @@ Run day 14, then day 15 (the schema change), and look at what dlt did:
 
 ## 8. How dlt stores state
 
-- **Locally:** `~/.dlt/pipelines/regnskap/` holds state, schemas, and load packages (`normalized`, `loaded`).
-  Inspect it with `dlt pipeline regnskap info`, `... trace`, and `... load-package`.
+- **Locally:** `~/.dlt/pipelines/regnskap_databricks/` holds state, schemas, and load packages (`normalized`, `loaded`).
+  Inspect it with `dlt pipeline regnskap_databricks info`, `... trace`, and `... load-package`.
 - **In the destination:** three system tables in `bronze`:
   - `_dlt_loads`: one row per load (`load_id`, status, time)
   - `_dlt_pipeline_state`: compressed state, including the incremental cursors (`last_value` per resource)
   - `_dlt_version`: schema versions with their hash
 - Every data row gets `_dlt_load_id` and `_dlt_id`. You can trace each row back to the load it came from.
-- **Experiment:** delete `~/.dlt/pipelines/regnskap/` and run again. dlt restores state from
+- **Experiment:** delete `~/.dlt/pipelines/regnskap_databricks/` and run again. dlt restores state from
   `_dlt_pipeline_state`, so it continues from the right cursor. That's exactly why it works on ephemeral
   compute (a Databricks job or GitHub Actions runner) without a persistent disk.
 - Read the state in code: `pipeline.state["sources"]["regnskap"]["resources"]["invoices"]["incremental"]`.

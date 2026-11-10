@@ -5,15 +5,20 @@
 
 File format
 -----------
-dlt prefers Parquet for Databricks, but writing Parquet needs pyarrow's native Parquet DLL, and
-Windows application control (Smart App Control) blocks that DLL on this machine. JSONL also works with
-COPY INTO; the one restriction is that timestamps must be timezone-aware, and every timestamp from the
-fake API is UTC ("...Z").
+Parquet (dlt's default for Databricks). It's typed, so COPY INTO doesn't have to guess column types.
 
-It has to be set as the destination's *preferred* format. `pipeline.run(loader_file_format=...)` only
-applies to your own resources, while dlt's system table `_dlt_pipeline_state` always uses the
-preferred format. On a machine (or Databricks job) where pyarrow works, Parquet is the faster choice:
-set DATABRICKS_FILE_FORMAT=parquet.
+DATABRICKS_FILE_FORMAT=jsonl switches to JSONL, but beware: dlt runs COPY INTO with
+inferTimestamp=true, so Spark reads date-like strings such as "2026-10-01" as TIMESTAMP, and the load
+fails with DELTA_FAILED_TO_MERGE_FIELDS against the STRING column dlt created. That's why dlt lists
+`date` as unsupported for JSONL on Databricks.
+
+History: Parquet first failed here with "En programkontrollpolicy har blokkert denne filen" on pyarrow's
+DLL. The cause was uv hard-linking packages into a .venv inside OneDrive; `link-mode = "copy"` in
+pyproject.toml fixed it.
+
+The format is set as the destination's *preferred* format, because `pipeline.run(loader_file_format=...)`
+only applies to your own resources, while dlt's system table `_dlt_pipeline_state` always uses the
+preferred format.
 
 Login without storing a token
 -----------------------------
@@ -59,6 +64,6 @@ def destination(name: str) -> str | Destination:
         # With an Entra (az login) token the SQL connector first tries to swap it for a Databricks token,
         # warns when that fails, and then uses the Entra token as-is, which works. Hide that noise.
         logging.getLogger("databricks.sql.auth.token_federation").setLevel(logging.ERROR)
-        file_format = os.environ.get("DATABRICKS_FILE_FORMAT", "jsonl")
+        file_format = os.environ.get("DATABRICKS_FILE_FORMAT", "parquet")
         return dlt.destinations.databricks(preferred_loader_file_format=file_format)
     raise ValueError(f"unknown destination {name!r}")
