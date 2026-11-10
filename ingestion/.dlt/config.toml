@@ -1,0 +1,18 @@
+# dlt configuration (committed). dlt reads ./.dlt/ from the current directory,
+# so run every pipeline from ingestion/:  uv run python -m pipelines.<name>
+#
+# Environment-specific values (workspace hostname, warehouse http_path) go in
+# .dlt/secrets.toml, which is gitignored. Copy .dlt/secrets.toml.example to get started.
+
+[runtime]
+log_level = "WARNING"
+
+[destination.databricks]
+# Managed volume created by infra/02-databricks (output dlt_staging_volume_name).
+# dlt uploads load files here with PUT and then runs COPY INTO the bronze tables.
+staging_volume_name = "lakehouse_dev.bronze.dlt_staging"
+# Delete the uploaded files after each successful COPY INTO, so the volume doesn't grow forever.
+keep_staged_files = false
+
+[destination.databricks.credentials]
+catalog = "lakehouse_dev"

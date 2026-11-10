@@ -19,6 +19,16 @@ output "sql_warehouse_http_path" {
   value       = databricks_sql_endpoint.this.odbc_params[0].path
 }
 
+output "volume_paths" {
+  description = "File paths of the bronze volumes, e.g. for `databricks fs cp`."
+  value       = { for k, v in databricks_volume.bronze : k => v.volume_path }
+}
+
+output "dlt_staging_volume_name" {
+  description = "Value for destination.databricks.staging_volume_name in ingestion/.dlt/config.toml."
+  value       = "${databricks_catalog.this.name}.${databricks_schema.medallion["bronze"].name}.${databricks_volume.bronze["dlt_staging"].name}"
+}
+
 output "git_folder_path" {
   value = databricks_repo.project.path
 }

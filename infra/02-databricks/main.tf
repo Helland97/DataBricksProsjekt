@@ -52,6 +52,30 @@ resource "databricks_schema" "medallion" {
   comment      = "${each.key} layer"
 }
 
+# --- Volumes for ingestion ---------------------------------------------------
+
+# Managed volumes live under the catalog's storage root in the lake, so they need no
+# extra credentials and are removed together with the schema.
+#   landing:     raw JSONL files uploaded by hand, read by the Auto Loader comparison notebook
+#   dlt_staging: dlt uploads its load files here (PUT) and then runs COPY INTO. Without it,
+#                dlt would create `_dlt_staging_load_volume` by itself, outside Terraform.
+locals {
+  bronze_volumes = {
+    landing     = "Raw files for the Auto Loader comparison (step 2, section 9)"
+    dlt_staging = "Temporary load files for dlt (destination.databricks.staging_volume_name)"
+  }
+}
+
+resource "databricks_volume" "bronze" {
+  for_each = local.bronze_volumes
+
+  name         = each.key
+  catalog_name = databricks_catalog.this.name
+  schema_name  = databricks_schema.medallion["bronze"].name
+  volume_type  = "MANAGED"
+  comment      = each.value
+}
+
 # --- SQL warehouse -----------------------------------------------------------
 
 resource "databricks_sql_endpoint" "this" {

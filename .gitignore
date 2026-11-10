@@ -52,6 +52,8 @@ airflow.db
 data/
 *.parquet
 *.csv
+*.duckdb
+*.duckdb.wal
 
 # --- Editor / OS ---
 .vscode/*
