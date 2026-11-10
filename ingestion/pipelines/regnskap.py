@@ -12,9 +12,14 @@ Then, from ingestion/:
     uv run python -m pipelines.regnskap --day 12 --refresh           # experiment 5: drop everything, reload
     uv run python -m pipelines.regnskap --day 5 --handwritten-gl     # gl_entries via the hand-written resource
     uv run python -m pipelines.regnskap --report                     # only print the comparison table
+    uv run python -m pipelines.regnskap --report --schema            # ... plus tables, columns, variants
+    uv run python -m pipelines.regnskap --day 15 --contract freeze-types   # section 7: schema contracts
 
 Add --destination databricks to load into lakehouse_dev.bronze instead of a local DuckDB file
 (ingestion/regnskap_duckdb.duckdb). The two destinations have separate pipeline state.
+
+Every schema change is exported as YAML to schemas/<destination>/regnskap.schema.yaml, so you can
+git diff the schema before and after the day 15 schema change.
 
 After every load, a table compares bronze against the source (the API at the current clock day):
 rows, distinct keys, keys missing in bronze, and rows that hold an outdated version.
@@ -35,6 +40,7 @@ from typing import Any
 import dlt
 import requests  # plain requests for the clock and the comparison: fail fast if the API is down
 from dlt.sources.helpers import requests as dlt_requests  # retrying client, for actual loading
+from dlt.common.schema.exceptions import DataValidationError
 from dlt.sources.rest_api import rest_api_resources
 
 from pipelines.databricks_setup import destination as make_destination
@@ -254,6 +260,54 @@ def print_report(pipeline: dlt.Pipeline, api_url: str) -> dict[str, dict]:
     return stats
 
 
+# --- Schema contracts and schema overview (section 7) -----------------------------
+
+# --contract name -> dlt schema_contract. Entities: tables (new tables), columns (new columns),
+# data_type (a value that doesn't fit the column's type, which would otherwise create a variant column).
+CONTRACTS: dict[str, Any] = {
+    "evolve": None,  # dlt's default: accept every change
+    "freeze-types": {"data_type": "freeze"},  # new tables/columns OK, type changes stop the load
+    "freeze-columns": {"columns": "freeze", "data_type": "freeze"},  # also stop on new columns
+    "freeze": "freeze",  # nothing may change, not even a new (child) table
+    "discard-value": {"columns": "discard_value", "data_type": "discard_value"},  # drop only the bad value
+    "discard-row": {"columns": "discard_row", "data_type": "discard_row"},  # drop the whole row
+}
+
+
+class ContractViolation(Exception):
+    """A schema contract stopped the load. The rejected package has been aborted."""
+
+
+def find_validation_error(ex: BaseException | None) -> DataValidationError | None:
+    while ex is not None:
+        if isinstance(ex, DataValidationError):
+            return ex
+        ex = getattr(ex, "exception", None) or ex.__cause__
+    return None
+
+
+def print_schema(pipeline: dlt.Pipeline) -> None:
+    """Tables, child tables, columns and variant columns, with how many rows have a value."""
+    schema = pipeline.default_schema
+    print("\nSchema (columns as name:type filled/total, \u25b2 = variant column from a type change)")
+    with pipeline.sql_client() as client:
+        for table in schema.data_tables():
+            name = table["name"]
+            columns = schema.get_table_columns(name)
+            cols = [c for c in columns if not c.startswith("_dlt")]
+            qualified = client.make_qualified_table_name(name)
+            counts = ", ".join(f"count({client.escape_column_name(c)})" for c in cols)
+            try:
+                total, *filled = client.execute_sql(f"SELECT count(*), {counts} FROM {qualified}")[0]
+            except Exception:
+                total, filled = 0, [0] * len(cols)
+            parent = f"  (child of {table['parent']}, linked by _dlt_parent_id)" if table.get("parent") else ""
+            print(f"  {name}: {total} rows{parent}")
+            for col, n in zip(cols, filled):
+                mark = " \u25b2" if "__v_" in col else ""
+                print(f"      {col}:{columns[col].get('data_type')} {n}/{total}{mark}")
+
+
 # --- CLI -----------------------------------------------------------------------------
 
 
@@ -273,6 +327,8 @@ def main() -> None:
     p.add_argument("--handwritten-gl", action="store_true", help="load gl_entries with the hand-written resource")
     p.add_argument("--refresh", action="store_true", help="drop all regnskap tables and state, then reload")
     p.add_argument("--report", action="store_true", help="don't load, only print the comparison")
+    p.add_argument("--schema", action="store_true", help="also print tables, columns and variant columns")
+    p.add_argument("--contract", choices=list(CONTRACTS), default="evolve", help="schema contract for this run")
     p.add_argument("--api-url", default=DEFAULT_API_URL)
     args = p.parse_args()
 
@@ -285,24 +341,30 @@ def main() -> None:
         pipeline_name=f"regnskap_{args.destination}",
         destination=make_destination(args.destination),
         dataset_name="bronze",
+        # Write the schema as YAML after every change: git diff it to see schema evolution.
+        export_schema_path=f"schemas/{args.destination}",
     )
 
     if args.report:
-        print(f"API clock: day {clock['day']} ({clock['date']})\n")
-        print_report(pipeline, args.api_url)
-        return
-
-    run_days(
-        pipeline,
-        args.api_url,
-        args.day or [None],
-        invoices=args.invoices,
-        gl_lag_days=args.gl_lag_days,
-        handwritten_gl=args.handwritten_gl,
-        refresh=args.refresh,
-    )
+        print(f"API clock: day {clock['day']} ({clock['date']})")
+    else:
+        try:
+            run_days(
+                pipeline,
+                args.api_url,
+                args.day or [None],
+                invoices=args.invoices,
+                gl_lag_days=args.gl_lag_days,
+                handwritten_gl=args.handwritten_gl,
+                refresh=args.refresh,
+                contract=args.contract,
+            )
+        except ContractViolation as ex:
+            print(f"\nSTOPPED: {ex}")
     print()
     print_report(pipeline, args.api_url)
+    if args.schema:
+        print_schema(pipeline)
 
 
 def run_days(
@@ -313,9 +375,14 @@ def run_days(
     gl_lag_days: float = 5,
     handwritten_gl: bool = False,
     refresh: bool = False,
+    contract: str = "evolve",
     verbose: bool = True,
 ) -> None:
-    """One load per day. A day of None means: don't touch the clock, load whatever is there now."""
+    """One load per day. A day of None means: don't touch the clock, load whatever is there now.
+
+    Raises ContractViolation if the schema contract rejects the data. The rejected package is aborted
+    first: otherwise it stays pending, and dlt retries it on the next run *instead of* extracting new data.
+    """
     for i, day in enumerate(days):
         clock = set_clock(api_url, day) if day is not None else requests.get(f"{api_url}/_clock", timeout=5).json()
         source = regnskap(
@@ -325,7 +392,23 @@ def run_days(
             handwritten_gl=handwritten_gl,
         )
         # drop_sources: drop the tables of this source and reset its state (cursors) before loading.
-        info = pipeline.run(source, refresh="drop_sources" if refresh and i == 0 else None)
+        try:
+            info = pipeline.run(
+                source,
+                refresh="drop_sources" if refresh and i == 0 else None,
+                schema_contract=CONTRACTS[contract],
+            )
+        except Exception as ex:
+            violation = find_validation_error(ex)
+            if violation is None:
+                raise
+            pipeline.abort_packages()  # also restores local state (cursors, schema) to before this package
+            raise ContractViolation(
+                f"Day {clock['day']}: schema contract '{contract}' rejected the data. "
+                f"Table `{violation.table_name}`, column `{violation.column_name}`: "
+                f"`{violation.schema_entity}` is set to `{violation.contract_mode}`. "
+                "Nothing from this run was loaded."
+            ) from ex
         if verbose:
             received = {
                 t: n for t, n in pipeline.last_trace.last_normalize_info.row_counts.items() if not t.startswith("_dlt")

@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import shutil
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -335,11 +334,24 @@ def generate(start: date, days: int, seed: int) -> Dataset:
 
 
 def write(data: Dataset, out: Path) -> dict[str, int]:
-    """Write one JSONL file per entity and arrival day. Returns row counts per entity."""
+    """Write one JSONL file per entity and arrival day. Returns row counts per entity.
+
+    Old output is removed file by file instead of with shutil.rmtree: inside OneDrive, deleting a
+    folder sometimes fails with "Ingen tilgang" (access denied) while OneDrive holds it, and that would
+    leave a half-deleted dataset. Deleting files works; empty folders are removed when possible.
+    """
     if out.exists():
-        if any(out.iterdir()) and not (out / "_manifest.json").exists():
-            raise SystemExit(f"Refusing to overwrite {out}: it was not created by this generator.")
-        shutil.rmtree(out)
+        ours = {"_manifest.json", *ENTITIES}
+        if any(p.name not in ours for p in out.iterdir()):
+            raise SystemExit(f"Refusing to overwrite {out}: it contains files not created by this generator.")
+        for f in out.rglob("*"):
+            if f.is_file():
+                f.unlink()
+        for d in sorted((d for d in out.rglob("*") if d.is_dir()), key=lambda d: len(d.parts), reverse=True):
+            try:
+                d.rmdir()
+            except OSError:
+                pass  # held by OneDrive or not empty; harmless, the API only reads part-0.jsonl files
 
     counts = {}
     for entity in ENTITIES:

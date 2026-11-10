@@ -1,0 +1,312 @@
+version: 2
+version_hash: /aoH0C/CqTlxmJjQk+ZB47I6S+MsmSUNFydgb73K7fQ=
+engine_version: 11
+name: regnskap
+tables:
+  _dlt_version:
+    columns:
+      version:
+        data_type: bigint
+        nullable: false
+        description: Numeric version of the schema, incremented on each schema change
+      engine_version:
+        data_type: bigint
+        nullable: false
+        description: Version of the dlt schema engine that created this schema
+      inserted_at:
+        data_type: timestamp
+        nullable: false
+        description: Timestamp when this schema version was stored
+      schema_name:
+        data_type: text
+        nullable: false
+        description: Name of the schema
+      version_hash:
+        data_type: text
+        nullable: false
+        description: Unique hash of the schema content, used to detect changes
+      schema:
+        data_type: text
+        nullable: false
+        description: JSON representation of the complete schema definition
+    write_disposition: skip
+    resource: _dlt_version
+    description: Created by DLT. Tracks schema updates
+  _dlt_loads:
+    columns:
+      load_id:
+        data_type: text
+        nullable: false
+        precision: 64
+        description: Unique identifier of the load operation
+      schema_name:
+        data_type: text
+        nullable: true
+        description: Name of the schema associated with this load
+      status:
+        data_type: bigint
+        nullable: false
+        description: Status of the load operation (0 = success)
+      inserted_at:
+        data_type: timestamp
+        nullable: false
+        description: Timestamp when the load was completed
+      schema_version_hash:
+        data_type: text
+        nullable: true
+        description: Hash of the schema version used during this load
+    write_disposition: skip
+    resource: _dlt_loads
+    description: Created by DLT. Tracks completed loads
+  accounts:
+    columns:
+      account_no:
+        nullable: false
+        primary_key: true
+        data_type: bigint
+      name:
+        data_type: text
+        nullable: true
+      account_type:
+        data_type: text
+        nullable: true
+      is_active:
+        data_type: bool
+        nullable: true
+      account_class:
+        data_type: bigint
+        nullable: true
+      _dlt_load_id:
+        data_type: text
+        nullable: false
+      _dlt_id:
+        data_type: text
+        nullable: false
+        unique: true
+        row_key: true
+      vat_code:
+        data_type: text
+        nullable: true
+    write_disposition: replace
+    resource: accounts
+    x-normalizer:
+      seen-data: true
+  customers:
+    columns:
+      customer_id:
+        nullable: false
+        primary_key: true
+        data_type: bigint
+      name:
+        data_type: text
+        nullable: true
+      org_no:
+        data_type: text
+        nullable: true
+      address:
+        data_type: text
+        nullable: true
+      postal_code:
+        data_type: text
+        nullable: true
+      city:
+        data_type: text
+        nullable: true
+      email:
+        data_type: text
+        nullable: true
+      payment_terms_days:
+        data_type: bigint
+        nullable: true
+      created_at:
+        data_type: timestamp
+        nullable: true
+      updated_at:
+        dedup_sort: desc
+        incremental: true
+        data_type: timestamp
+        nullable: true
+      _dlt_load_id:
+        data_type: text
+        nullable: false
+      _dlt_id:
+        data_type: text
+        nullable: false
+        unique: true
+        row_key: true
+    x-merge-strategy: delete-insert
+    write_disposition: merge
+    resource: customers
+    x-normalizer:
+      seen-data: true
+  invoices:
+    columns:
+      invoice_id:
+        nullable: false
+        primary_key: true
+        data_type: bigint
+      customer_id:
+        data_type: bigint
+        nullable: true
+      invoice_date:
+        data_type: text
+        nullable: true
+      due_date:
+        data_type: text
+        nullable: true
+      amount_ex_vat:
+        data_type: double
+        nullable: true
+      vat_amount:
+        data_type: double
+        nullable: true
+      amount_incl_vat:
+        data_type: double
+        nullable: true
+      status:
+        data_type: text
+        nullable: true
+      updated_at:
+        dedup_sort: desc
+        incremental: true
+        data_type: timestamp
+        nullable: true
+      _dlt_load_id:
+        data_type: text
+        nullable: false
+      _dlt_id:
+        data_type: text
+        nullable: false
+        unique: true
+        row_key: true
+    x-merge-strategy: delete-insert
+    write_disposition: merge
+    resource: invoices
+    x-normalizer:
+      seen-data: true
+  gl_entries:
+    columns:
+      entry_id:
+        nullable: false
+        primary_key: true
+        data_type: text
+      voucher_no:
+        data_type: bigint
+        nullable: true
+      line_no:
+        data_type: bigint
+        nullable: true
+      entry_date:
+        data_type: text
+        nullable: true
+      account_no:
+        data_type: bigint
+        nullable: true
+      description:
+        data_type: text
+        nullable: true
+      debit:
+        data_type: double
+        nullable: true
+      credit:
+        data_type: double
+        nullable: true
+      invoice_id:
+        data_type: bigint
+        nullable: true
+      customer_id:
+        data_type: bigint
+        nullable: true
+      updated_at:
+        incremental: true
+        data_type: timestamp
+        nullable: true
+      _dlt_load_id:
+        data_type: text
+        nullable: false
+      _dlt_id:
+        data_type: text
+        nullable: false
+        unique: true
+        row_key: true
+    x-merge-strategy: delete-insert
+    write_disposition: merge
+    resource: gl_entries
+    x-normalizer:
+      seen-data: true
+  _dlt_pipeline_state:
+    columns:
+      version:
+        data_type: bigint
+        nullable: false
+        description: Numeric version of the pipeline state
+      engine_version:
+        data_type: bigint
+        nullable: false
+        description: Version of the dlt state engine
+      pipeline_name:
+        data_type: text
+        nullable: false
+        description: Name of the pipeline this state belongs to
+      state:
+        data_type: text
+        nullable: false
+        description: Compressed JSON representation of the pipeline state
+      created_at:
+        data_type: timestamp
+        nullable: false
+        description: Timestamp when this state was created
+      version_hash:
+        data_type: text
+        nullable: true
+        description: Hash of the state content, used to detect changes
+      _dlt_load_id:
+        data_type: text
+        nullable: false
+        precision: 64
+        description: Load identifier linking this row to its load operation
+      _dlt_id:
+        data_type: text
+        nullable: false
+        unique: true
+        row_key: true
+    write_disposition: append
+    file_format: preferred
+    resource: _dlt_pipeline_state
+    x-normalizer:
+      seen-data: true
+settings:
+  detections:
+  - iso_timestamp
+  default_hints:
+    not_null:
+    - _dlt_id
+    - _dlt_root_id
+    - _dlt_parent_id
+    - _dlt_list_idx
+    - _dlt_load_id
+    parent_key:
+    - _dlt_parent_id
+    root_key:
+    - _dlt_root_id
+    unique:
+    - _dlt_id
+    row_key:
+    - _dlt_id
+normalizers:
+  names: snake_case
+  json:
+    module: dlt.common.normalizers.json.relational
+    config:
+      propagation:
+        tables:
+          customers:
+            _dlt_id: _dlt_root_id
+          invoices:
+            _dlt_id: _dlt_root_id
+          gl_entries:
+            _dlt_id: _dlt_root_id
+previous_hashes:
+- BPnu2KZcf0hrCeLC0xfIe21actn0Z5gme0LyT8ygOLY=
+- 2LjH1LkXYo59eSVe3kFJcr5KaKfVQnhpi90Lcmr/nsk=
+- CL6yAEq4JJw8slvbZG7QrDvRI3a27rmiBPXKq69SIGw=

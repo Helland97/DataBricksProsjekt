@@ -229,19 +229,56 @@ nice bonus, but the plan is to do SCD2 with **dbt snapshots** in step 3, so use 
 
 ## 7. Schema evolution
 
-Run day 14, then day 15 (the schema change), and look at what dlt did:
+On day 15 the source ships invoice "v2". All three kinds of schema change land on that day:
 
 - **New columns** (`currency`, `kid`) are added with `ALTER TABLE`. Older rows get `NULL`.
 - **Nested list `lines`** becomes a **child table** `invoices__lines`, linked by `_dlt_parent_id` → `_dlt_id`
   (and `_dlt_root_id`). This is dlt's normalisation. Contrast it with Auto Loader, which keeps the struct/array as-is.
-- **Type change** (`amount` as a string) becomes a **variant column** `amount__v_text` rather than a failed load.
-  This is important to be able to explain: dlt never silently overwrites the type, it creates a new column.
-- Compare `pipeline.default_schema.to_pretty_yaml()` before and after, or set `export_schema_path` and
-  look at the git diff of the schema file. That's a very visual way to show it.
-- **Schema contracts:** run day 15 again with
-  `schema_contract={"tables": "evolve", "columns": "evolve", "data_type": "freeze"}`. The load now fails on the
-  type change. Discuss when you'd want `freeze` (sources you own and expect to be stable) vs. `evolve` (bronze,
-  where you want to capture everything) vs. `discard_row` / `discard_value`.
+- **Type change** (`amount_incl_vat` as the string `"37 322,00"`) becomes a **variant column**
+  `amount_incl_vat__v_text` rather than a failed load. The original column is `NULL` on that row. This is important
+  to be able to explain: dlt never silently overwrites the type, it creates a new column.
+
+**Tools in `pipelines/regnskap.py`:**
+- `--schema` prints every table with its columns, type and filled/total counts. Variant columns are marked ▲ and
+  child tables show their parent. Works the same for DuckDB and Databricks. `--report --schema` only inspects.
+- `export_schema_path` writes dlt's schema as YAML to `ingestion/schemas/<destination>/regnskap.schema.yaml` after
+  every schema change. Commit it after day 14, run day 15, and `git diff` shows the schema evolution.
+- `--contract` sets `schema_contract` for the run:
+
+| `--contract` | `schema_contract` | Day 15 result |
+|---|---|---|
+| `evolve` (default) | none | Everything accepted: new columns, child table, variant column |
+| `freeze-types` | `{"data_type": "freeze"}` | Stops on the type change (`amount_incl_vat__v_text`) |
+| `freeze-columns` | `{"columns": "freeze", "data_type": "freeze"}` | Stops on the first new column |
+| `freeze` | `"freeze"` | Stops on anything new, also the child table |
+| `discard-value` | `discard_value` for columns and types | Loads the rows, drops only the values that don't fit |
+| `discard-row` | `discard_row` for columns and types | Drops whole rows that don't fit |
+
+When a contract stops the load, the pipeline calls `pipeline.abort_packages()`. That removes the rejected package
+and restores the local state (cursors, schema) to before it. Without that, the package stays pending and dlt
+retries it on the next run *instead of* extracting new data.
+
+**How to try it** (from `ingestion/`, API running):
+```powershell
+uv run python -m pipelines.regnskap --day 1-14 --refresh                      # up to just before the change
+git add schemas; git commit -m "Schema before day 15"                          # optional, for the diff
+uv run python -m pipelines.regnskap --day 15 --schema                          # the schema change
+git diff schemas                                                               # what changed, as YAML
+
+uv run python -m pipelines.regnskap --day 1-14 --refresh                      # start again before day 15
+uv run python -m pipelines.regnskap --day 15 --contract freeze-types          # STOPPED, nothing loaded
+uv run python -m pipelines.regnskap --day 15 --schema                         # evolve: loads day 15 normally
+```
+
+**The catch:** `freeze` only stops *new* changes. Once `evolve` has created `amount_incl_vat__v_text`, later string
+amounts (days 17, 19, 20, ...) go into it even with `--contract freeze-types`. To see a contract stop the load, the
+change has to be new: run up to day 14 with `--refresh` first.
+
+Discuss when you'd want `freeze` (sources you own and expect to be stable, or silver/gold contracts), `evolve`
+(bronze, where you want to capture everything) or `discard_row` / `discard_value` (when bad data mustn't stop the
+pipeline, but you accept losing it). In bronze, `evolve` plus a check that alerts on new variant columns is a common choice.
+
+All of this is automated in `ingestion/tests/test_pipeline.py` (section 7 tests).
 
 ## 8. How dlt stores state
 
@@ -252,7 +289,8 @@ Run day 14, then day 15 (the schema change), and look at what dlt did:
   - `_dlt_pipeline_state`: compressed state, including the incremental cursors (`last_value` per resource)
   - `_dlt_version`: schema versions with their hash
 - Every data row gets `_dlt_load_id` and `_dlt_id`. You can trace each row back to the load it came from.
-- **Experiment:** delete `~/.dlt/pipelines/regnskap_databricks/` and run again. dlt restores state from
+- **Experiment:** delete `~/.dlt/pipelines/regnskap_databricks/` and run the next day (a real run, not
+  `--report`: state is only fetched from the destination when the pipeline runs). dlt restores state from
   `_dlt_pipeline_state`, so it continues from the right cursor. That's exactly why it works on ephemeral
   compute (a Databricks job or GitHub Actions runner) without a persistent disk.
 - Read the state in code: `pipeline.state["sources"]["regnskap"]["resources"]["invoices"]["incremental"]`.
@@ -271,9 +309,25 @@ Make notes on:
 - `trigger(availableNow=True)` for batch-like runs of a stream
 - How it's used inside Lakeflow Declarative Pipelines (`read_files` / `cloudFiles` in a streaming table)
 
-**Hands-on:** `notebooks/autoloader_compare.py` reads `landing/invoices/` into `bronze.al_invoices`.
-Upload day 14, run it, upload day 15, run it again, and observe the stop-and-restart, the new columns, and
-`_rescued_data`. Then note the differences from the dlt table (see the table in section 10).
+**Hands-on:** `ingestion/notebooks/autoloader_compare.py` reads `landing/invoices/` into `bronze.al_invoices`.
+`ingestion/pipelines/landing.py` uploads the generator's files to the volume one day at a time (Databricks SDK,
+same `az login` as dlt). The notebook reaches the workspace through the Git folder
+(`/Users/<you>/DataBricksProsjekt`, from step 1): push, then **Pull** in the Git folder.
+
+```powershell
+# from ingestion/
+uv run python -m pipelines.landing --day 1-14        # notebook: Run all -> v1 schema inferred
+uv run python -m pipelines.landing --day 15          # notebook: Run all -> stops once, restarts, _rescued_data
+                                                      # notebook: Run all again -> 0 new rows (exactly-once)
+uv run python -m pipelines.regnskap --day 1-15 --refresh --destination databricks   # dlt side, for the comparison
+uv run python -m pipelines.landing --clear           # start over (and reset = yes in the notebook)
+```
+
+The notebook prints the stop on new columns and restarts by itself (in a job, a retry does that), shows the
+schema versions in `schemaLocation/_schemas`, the rows in `_rescued_data`, the files in the checkpoint
+(`cloud_files_state`), and compares row counts, the type change and `lines` (array vs. child table) with dlt.
+The `mode` widget switches `schemaEvolutionMode`; each mode gets its own table (`al_invoices_rescue`, ...).
+Then note the differences from the dlt table (see the table in section 10).
 
 ## 10. Interview prep: be able to explain this
 

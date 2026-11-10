@@ -138,6 +138,8 @@ def test_schema_change(messy):
     assert after and all("lines" in i and "currency" in i for i in after)
     assert any(isinstance(i["amount_incl_vat"], str) for i in after)
     assert not any(isinstance(i["amount_incl_vat"], str) for i in before)
+    # The type change happens on the change day itself, together with the new columns.
+    assert any(isinstance(i["amount_incl_vat"], str) for i in after if i["_day"] == change)
 
 
 def test_nulls(messy):

@@ -17,7 +17,7 @@ import uvicorn
 from fake_api.app import create_app
 from generator import mess
 from generator.generate import generate, write
-from pipelines.regnskap import compare, run_days
+from pipelines.regnskap import ContractViolation, compare, run_days
 
 START = date(2026, 10, 1)
 DAYS = 30
@@ -103,3 +103,68 @@ def test_lag_catches_late_rows(pipeline, api_url):
 def test_handwritten_resource_behaves_the_same(pipeline, api_url):
     run_days(pipeline, api_url, list(range(1, 13)), handwritten_gl=True, verbose=False)
     assert all_clean(compare(pipeline, api_url))
+
+
+# --- Section 7: schema evolution and contracts ------------------------------------
+
+VARIANT = "amount_incl_vat__v_text"
+
+
+def invoice_columns(pipeline):
+    return set(pipeline.default_schema.get_table_columns("invoices"))
+
+
+def non_null(pipeline, table, column):
+    with pipeline.sql_client() as c:
+        return c.execute_sql(f"SELECT count({column}) FROM {c.make_qualified_table_name(table)}")[0][0]
+
+
+def test_schema_evolves_on_day_15(pipeline, api_url):
+    run_days(pipeline, api_url, list(range(1, 15)), verbose=False)
+    assert not {"currency", "kid", VARIANT} & invoice_columns(pipeline)
+    assert "invoices__lines" not in pipeline.default_schema.tables
+
+    run_days(pipeline, api_url, [15], verbose=False)
+    cols = invoice_columns(pipeline)
+    assert {"currency", "kid", VARIANT} <= cols  # new columns + variant column for the type change
+    assert pipeline.default_schema.tables["invoices__lines"]["parent"] == "invoices"  # nested list -> child table
+    assert non_null(pipeline, "invoices", VARIANT) >= 1
+    # Older invoices get NULL in the new columns.
+    assert non_null(pipeline, "invoices", "currency") < compare(pipeline, api_url)["invoices"]["bronze_rows"]
+    assert all_clean(compare(pipeline, api_url))
+
+
+def test_freeze_types_stops_day_15_without_getting_stuck(pipeline, api_url):
+    run_days(pipeline, api_url, list(range(1, 15)), verbose=False)
+    with pytest.raises(ContractViolation, match=VARIANT):
+        run_days(pipeline, api_url, [15], contract="freeze-types", verbose=False)
+    # Nothing from day 15 was loaded, and the cursor went back to day 14.
+    assert compare(pipeline, api_url)["invoices"]["missing"] > 0
+    assert pipeline.state["sources"]["regnskap"]["resources"]["invoices"]["incremental"]["updated_at"][
+        "last_value"
+    ] < "2026-10-15"
+    # The rejected package was aborted, so a normal run picks up day 15 completely.
+    run_days(pipeline, api_url, [15], verbose=False)
+    assert all_clean(compare(pipeline, api_url))
+
+
+def test_freeze_types_does_not_stop_once_the_variant_exists(pipeline, api_url):
+    """The catch in section 7: freeze only stops *new* changes. After evolve has created the variant
+    column, later string amounts (days 17, 19, 20) go into it without complaint."""
+    run_days(pipeline, api_url, list(range(1, 16)), verbose=False)
+    before = non_null(pipeline, "invoices", VARIANT)
+    run_days(pipeline, api_url, list(range(16, 21)), contract="freeze-types", verbose=False)
+    assert non_null(pipeline, "invoices", VARIANT) > before
+
+
+def test_discard_value_drops_only_the_bad_value(pipeline, api_url):
+    run_days(pipeline, api_url, list(range(1, 15)), verbose=False)
+    run_days(pipeline, api_url, [15], contract="discard-value", verbose=False)
+    assert VARIANT not in invoice_columns(pipeline)
+    assert compare(pipeline, api_url)["invoices"]["missing"] == 0  # the row is kept, only the value is gone
+
+
+def test_freeze_everything_stops_on_new_columns(pipeline, api_url):
+    run_days(pipeline, api_url, list(range(1, 15)), verbose=False)
+    with pytest.raises(ContractViolation):
+        run_days(pipeline, api_url, [15], contract="freeze", verbose=False)

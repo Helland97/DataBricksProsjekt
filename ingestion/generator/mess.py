@@ -33,16 +33,18 @@ def schema_change(data: Dataset, rng: random.Random, start: date, **_) -> dict:
     """Invoices before SCHEMA_CHANGE_DAY are 'v1': no currency, kid or nested lines.
 
     From that day on rows are 'v2', and ~5 % of them send amount_incl_vat as a
-    Norwegian-formatted string instead of a number (a type change).
+    Norwegian-formatted string instead of a number (a type change). The first v2 row on the change day
+    always does, so all three kinds of schema change (new columns, nested list, type change) land on
+    the same day.
     """
     change_day = start + timedelta(days=SCHEMA_CHANGE_DAY - 1)
     v1 = stringified = 0
-    for row in data["invoices"]:
+    for row in data["invoices"]:  # sorted by arrival day and updated_at
         if row["_day"] < change_day:
             for f in V2_FIELDS:
                 row.pop(f, None)
             v1 += 1
-        elif rng.random() < 0.05:
+        elif (row["_day"] == change_day and stringified == 0) or rng.random() < 0.05:
             row["amount_incl_vat"] = norwegian_amount(row["amount_incl_vat"])
             stringified += 1
     return {
