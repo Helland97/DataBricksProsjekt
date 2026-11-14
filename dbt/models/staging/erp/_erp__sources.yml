@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: erp
+    description: "Fake ERP system loaded into bronze by dlt (ingestion/pipelines/regnskap.py)."
+    schema: bronze
+    config:
+      loaded_at_field: "timestamp_seconds(cast(_dlt_load_id as decimal(20, 6)))"
+      freshness:
+        warn_after: {count: 24, period: hour}
+    tables:
+      - name: accounts
+        description: "Chart of accounts (NS 4102). Full load (replace) on every run."
+      - name: customers
+        description: "Customers. Merge on customer_id."
+      - name: invoices
+        description: "Invoices, one row per invoice (latest status). Merge on invoice_id."
+      - name: invoices__lines
+        description: "Invoice lines (v2 invoices, from day 15). dlt child table of invoices."
+        config:
+          freshness: null    # child tables have no _dlt_load_id
+      - name: gl_entries
+        description: "General ledger lines (hovedbok). Merge on entry_id."

@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: stg_erp__accounts
+    description: "Chart of accounts, typed. One row per account."
+    columns:
+      - name: account_no
+        data_tests: [unique, not_null]
+
+  - name: stg_erp__customers
+    description: "Customers, latest version per customer_id. is_valid_org_no flags bad org numbers (mod 11)."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: stg_erp__invoices
+    description: "Invoices, latest version per invoice_id. Amounts as decimal; text amounts from day 15 parsed back."
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+
+  - name: stg_erp__invoice_lines
+    description: "Invoice lines. Only v2 invoices (from day 15) have lines."
+    columns:
+      - name: invoice_line_id
+        data_tests: [unique, not_null]
+
+  - name: stg_erp__gl_entries
+    description: "General ledger lines (hovedbok), latest version per entry_id."
+    columns:
+      - name: entry_id
+        data_tests: [unique, not_null]

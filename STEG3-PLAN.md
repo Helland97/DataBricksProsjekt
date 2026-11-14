@@ -191,7 +191,7 @@ time. The data's own dates are simulated, so freshness on `updated_at` would alw
 |---|---|---|
 | `stg_erp__accounts` | table | Types, `account_class`, `is_active`. Small, so a full rebuild every time. |
 | `stg_erp__customers` | table | `nullif(trim(org_no), '')`, a flag `is_valid_org_no` (mod 11 check digit, as a macro), lower-case email, dedup on `customer_id` |
-| `stg_erp__invoices` | **incremental merge** on `invoice_id` | `coalesce(amount_incl_vat, parse_nok_amount(amount_incl_vat__v_text))`, dates as `date`, `due_date` fallback flagged `is_due_date_derived`, `vat_amount` fallback, `currency` default, dedup within the batch |
+| `stg_erp__invoices` | **incremental merge** on `invoice_id` | `coalesce(amount_incl_vat, parse_nok_amount(amount_incl_vat__v_text))`, dates as `date`, `due_date` left null (the fallback needs the customer's payment terms, i.e. a join, so it's done in `fct_invoices`), `vat_amount` fallback, `currency` default, dedup within the batch |
 | `stg_erp__invoice_lines` | table | Join `invoices__lines._dlt_parent_id = invoices._dlt_id` to get `invoice_id`. Only v2 invoices have lines; document that. |
 | `stg_erp__gl_entries` | **incremental merge** on `entry_id` | `debit`/`credit` as `decimal(18,2)`, `entry_date` as `date`, `posted_at` (= `updated_at`), `arrived_at` (= `dlt_loaded_at`), dedup within the batch |
 | `int_gl_vouchers` | view | One row per `voucher_no`: line count, sum debit, sum credit, `is_balanced`, `last_arrived_at` |
