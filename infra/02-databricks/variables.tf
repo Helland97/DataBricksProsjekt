@@ -5,9 +5,9 @@ variable "catalog_name" {
 }
 
 variable "schemas" {
-  description = "Medallion schemas created in the catalog."
+  description = "Schemas created in the catalog: the medallion layers, plus audit for dbt's stored test failures."
   type        = set(string)
-  default     = ["bronze", "silver", "gold"]
+  default     = ["bronze", "silver", "gold", "audit"]
 }
 
 variable "warehouse_size" {

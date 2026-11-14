@@ -52,6 +52,7 @@ airflow.db
 data/
 *.parquet
 *.csv
+!dbt/seeds/*.csv
 *.duckdb
 *.duckdb.wal
 

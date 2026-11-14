@@ -1,0 +1,13 @@
+# Copy to profiles.yml (gitignored) and fill in the two values from:
+#   cd infra/02-databricks; terraform output workspace_url; terraform output sql_warehouse_http_path
+regnskap:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: lakehouse_dev
+      schema: silver
+      host: <workspace host, without https://>
+      http_path: <sql_warehouse_http_path>
+      auth_type: oauth
+      threads: 4

@@ -1,0 +1,38 @@
+name: regnskap
+version: "0.1.0"
+profile: regnskap
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  regnskap:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +schema: silver
+      +materialized: table
+    intermediate:
+      +schema: silver
+      +materialized: view
+    marts:
+      +schema: gold
+      +materialized: table
+
+snapshots:
+  regnskap:
+    +schema: silver
+
+seeds:
+  regnskap:
+    +schema: silver
+
+data_tests:
+  regnskap:
+    +store_failures: true
+    +schema: audit
