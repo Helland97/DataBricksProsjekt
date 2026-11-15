@@ -1,4 +1,4 @@
-version: 3
+version: 2
 version_hash: CL6yAEq4JJw8slvbZG7QrDvRI3a27rmiBPXKq69SIGw=
 engine_version: 11
 name: regnskap
@@ -357,7 +357,6 @@ normalizers:
           gl_entries:
             _dlt_id: _dlt_root_id
 previous_hashes:
-- /aoH0C/CqTlxmJjQk+ZB47I6S+MsmSUNFydgb73K7fQ=
 - BPnu2KZcf0hrCeLC0xfIe21actn0Z5gme0LyT8ygOLY=
 - 2LjH1LkXYo59eSVe3kFJcr5KaKfVQnhpi90Lcmr/nsk=
-- CL6yAEq4JJw8slvbZG7QrDvRI3a27rmiBPXKq69SIGw=
+- /aoH0C/CqTlxmJjQk+ZB47I6S+MsmSUNFydgb73K7fQ=

@@ -1,5 +1,17 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='entry_id',
+    on_schema_change='append_new_columns'
+) }}
+
 with source as (
     select * from {{ source('erp', 'gl_entries') }}
+    {% if is_incremental() %}
+    -- Filter on ARRIVAL, not on updated_at. _dlt_load_id is set by the loader and only ever increases,
+    -- so late lines (old updated_at, new load) are picked up too.
+    where {{ dlt_loaded_at('_dlt_load_id') }} > (select max(loaded_at) from {{ this }})
+    {% endif %}
 ),
 
 renamed as (

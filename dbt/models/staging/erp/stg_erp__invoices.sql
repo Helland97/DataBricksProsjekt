@@ -1,6 +1,18 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='invoice_id',
+    on_schema_change='append_new_columns'
+) }}
+
+
 with source as (
     select * from {{ source('erp', 'invoices') }}
+    {% if is_incremental() %}
+    where {{ dlt_loaded_at('_dlt_load_id') }} > (select max(loaded_at) from {{ this }})
+    {% endif %}
 ),
+
 
 typed as (
     select
