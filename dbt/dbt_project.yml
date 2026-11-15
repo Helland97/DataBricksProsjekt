@@ -39,5 +39,6 @@ data_tests:
 
 vars:
   ar_account_no: 1500     # kundefordringer (NS 4102)
+  bank_account_no: 1920   # bankinnskudd (NS 4102): a debit here + AR credit = customer payment
   as_of_date: null        # null = latest entry_date in the data; override with --vars
   snapshot_time: null     # replay only: simulated date for snapshot versions. null = current_timestamp()

@@ -1,0 +1,174 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "SCD2 customer dimension (kunderegister). One row per customer version, from snp_erp__customers."
+    columns:
+      - name: customer_sk
+        description: "Surrogate key for one customer version (dbt_scd_id)."
+        data_tests: [unique, not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [customer_id]
+          config:
+            where: "is_current"
+
+  - name: dim_accounts
+    description: "SCD2 chart of accounts (kontoplan, NS 4102). One row per account version, from snp_erp__accounts."
+    columns:
+      - name: account_sk
+        data_tests: [unique, not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [account_no]
+          config:
+            where: "is_current"
+
+  - name: fct_gl_entries
+    description: >
+      General ledger lines (hovedbok) from balanced vouchers only. Vouchers with a late line wait in
+      silver (quarantine) until they balance.
+    columns:
+      - name: entry_id
+        data_tests: [unique, not_null]
+      - name: period
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('accounting_periods')
+                field: period
+      - name: account_no
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_no
+
+  - name: fct_invoices
+    description: "One row per invoice, joined to the customer version valid on invoice_date (point-in-time)."
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: customer_sk
+        description: "The customer version valid on invoice_date. Null means no version matched."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_sk
+
+  - name: rpt_trial_balance
+    description: "Trial balance (saldobalanse). Grain: period x account. Debit positive."
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [period, account_no]
+    columns:
+      - name: period
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: account_no
+        data_type: int
+        constraints: [{type: not_null}]
+      - name: account_name
+        data_type: string
+      - name: account_type
+        data_type: string
+      - name: account_class
+        data_type: int
+      - name: opening_balance
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: debit
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: credit
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: net_change
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: closing_balance
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+
+  - name: rpt_ar_aging
+    description: "Aged accounts receivable (aldersfordelt kundereskontro). Grain: open invoice on as_of_date."
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: as_of_date
+        data_type: date
+        constraints: [{type: not_null}]
+      - name: invoice_id
+        data_type: bigint
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: customer_id
+        data_type: bigint
+        constraints: [{type: not_null}]
+      - name: customer_name
+        data_type: string
+      - name: invoice_date
+        data_type: date
+      - name: due_date
+        data_type: date
+      - name: open_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: days_past_due
+        data_type: int
+      - name: aging_bucket
+        data_type: string
+        constraints: [{type: not_null}]
+
+  - name: rpt_ar_aging_by_customer
+    description: "rpt_ar_aging pivoted: one row per customer, one column per aging bucket."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: rpt_customer_summary
+    description: "Summary per customer (oppsummering per kunde). Grain: customer, current version."
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: customer_id
+        data_type: bigint
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: customer_name
+        data_type: string
+      - name: city
+        data_type: string
+      - name: payment_terms_days
+        data_type: int
+      - name: invoice_count
+        data_type: int
+        constraints: [{type: not_null}]
+      - name: invoiced_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: credited_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: paid_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: open_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: overdue_amount
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
+      - name: overdue_share
+        data_type: decimal(5,4)
+      - name: avg_days_to_payment
+        data_type: decimal(6,1)
+      - name: last_invoice_date
+        data_type: date
