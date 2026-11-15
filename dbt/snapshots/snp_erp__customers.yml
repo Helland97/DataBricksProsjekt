@@ -1,0 +1,21 @@
+snapshots:
+  - name: snp_erp__customers
+    relation: source('erp', 'customers')
+    description: >
+      SCD2 history of the customer master (kunderegister), taken straight from bronze.
+      One row per customer version. dbt_valid_from/dbt_valid_to come from updated_at.
+    config:
+      unique_key: customer_id
+      strategy: timestamp
+      updated_at: updated_at
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"
+    columns:
+      - name: dbt_scd_id
+        data_tests: [unique, not_null]
+    data_tests:
+      # exactly one current version per customer
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [customer_id]
+          config:
+            where: "dbt_valid_to = cast('9999-12-31' as timestamp)"

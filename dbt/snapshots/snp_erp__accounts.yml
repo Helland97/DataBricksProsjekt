@@ -1,0 +1,21 @@
+snapshots:
+  - name: snp_erp__accounts
+    relation: source('erp', 'accounts')
+    description: >
+      SCD2 history of the chart of accounts (kontoplan, NS 4102). Accounts have no updated_at,
+      so a new version is written when one of check_cols changes.
+    config:
+      unique_key: account_no
+      strategy: check
+      check_cols: [name, account_type, vat_code, is_active]
+      hard_deletes: invalidate
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"
+    columns:
+      - name: dbt_scd_id
+        data_tests: [unique, not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [account_no]
+          config:
+            where: "dbt_valid_to = cast('9999-12-31' as timestamp)"
