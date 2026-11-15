@@ -1,0 +1,17 @@
+version: 2
+
+exposures:
+  - name: revisjonsrapport
+    label: Revisjonsrapport
+    type: analysis
+    maturity: medium
+    description: >
+      The audit report (revisjonsrapport) for the period: trial balance, aged receivables and customer
+      summary, read together with the findings in lakehouse_dev.audit.
+    depends_on:
+      - ref('rpt_trial_balance')
+      - ref('rpt_ar_aging')
+      - ref('rpt_ar_aging_by_customer')
+      - ref('rpt_customer_summary')
+    owner:
+      name: Revisjon

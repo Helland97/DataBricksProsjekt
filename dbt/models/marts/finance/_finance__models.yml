@@ -5,8 +5,24 @@ models:
     description: "SCD2 customer dimension (kunderegister). One row per customer version, from snp_erp__customers."
     columns:
       - name: customer_sk
-        description: "Surrogate key for one customer version (dbt_scd_id)."
+        description: "Surrogate key for one customer version (dbt_scd_id). Facts point to a version, not just a customer."
         data_tests: [unique, not_null]
+      - name: customer_id
+        description: "Business key from the ERP. The same for every version of a customer."
+      - name: org_no
+        description: "Norwegian organisation number (9 digits). Null when missing in the source."
+      - name: is_valid_org_no
+        description: "False when org_no is missing or fails the mod 11 check digit."
+      - name: payment_terms_days
+        description: "Payment terms in days in this version. Used to derive missing due dates."
+      - name: valid_from_date
+        description: "First date this version is valid (inclusive). Version 1 is valid from 1900-01-01."
+      - name: valid_to_date
+        description: "Date this version stops being valid (exclusive). 9999-12-31 for the current version."
+      - name: is_current
+        description: "True for the current version of each customer."
+      - name: version_no
+        description: "1 for the first version, 2 for the next, and so on."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -15,10 +31,23 @@ models:
             where: "is_current"
 
   - name: dim_accounts
-    description: "SCD2 chart of accounts (kontoplan, NS 4102). One row per account version, from snp_erp__accounts."
+    description: "SCD2 chart of accounts (kontoplan). One row per account version, from snp_erp__accounts. {{ doc('ns4102') }}"
     columns:
       - name: account_sk
+        description: "Surrogate key for one account version (dbt_scd_id)."
         data_tests: [unique, not_null]
+      - name: account_no
+        description: "Account number (NS 4102)."
+      - name: account_class
+        description: "First digit of the account number: 1-2 balance sheet, 3-8 profit and loss."
+      - name: is_active
+        description: "False when the account is deactivated in this version. Postings to it are a finding."
+      - name: valid_from_date
+        description: "First date this version is valid (inclusive). Version 1 is valid from 1900-01-01."
+      - name: valid_to_date
+        description: "Date this version stops being valid (exclusive). 9999-12-31 for the current version."
+      - name: is_current
+        description: "True for the current version of each account."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -28,28 +57,42 @@ models:
 
   - name: fct_gl_entries
     description: >
-      General ledger lines (hovedbok) from balanced vouchers only. Vouchers with a late line wait in
-      silver (quarantine) until they balance.
+      {{ doc('hovedbok') }} Only lines from balanced vouchers: a voucher with a late line waits in
+      silver (quarantine) until it balances.
     columns:
       - name: entry_id
+        description: "One voucher line."
         data_tests: [unique, not_null]
+      - name: voucher_no
+        description: "{{ doc('bilag') }}"
       - name: period
+        description: "{{ doc('regnskapsperiode') }}"
         data_tests:
           - relationships:
               arguments:
                 to: ref('accounting_periods')
                 field: period
       - name: account_no
+        description: "Account posted to (NS 4102)."
         data_tests:
           - relationships:
               arguments:
                 to: ref('dim_accounts')
                 field: account_no
+      - name: amount
+        description: "debit - credit. Debit is positive everywhere in gold."
+      - name: posted_at
+        description: "When the line was posted in the ERP (the source's updated_at)."
+      - name: loaded_at
+        description: "When the line arrived in bronze (from _dlt_load_id). Used for incremental loading."
+      - name: voucher_loaded_at
+        description: "Latest arrival of any line in the voucher. The incremental filter for this model."
 
   - name: fct_invoices
     description: "One row per invoice, joined to the customer version valid on invoice_date (point-in-time)."
     columns:
       - name: invoice_id
+        description: "Invoice number. Must be gap-free (see the audit tests)."
         data_tests: [unique, not_null]
       - name: customer_sk
         description: "The customer version valid on invoice_date. Null means no version matched."
@@ -59,9 +102,17 @@ models:
               arguments:
                 to: ref('dim_customers')
                 field: customer_sk
+      - name: due_date
+        description: "Due date. If missing in the source, invoice_date + the payment terms valid on invoice_date."
+      - name: is_due_date_derived
+        description: "True when due_date was missing in the source and has been derived."
+      - name: kid
+        description: "{{ doc('kid') }}"
+      - name: status
+        description: "Latest invoice status: sent, overdue, paid or credited."
 
   - name: rpt_trial_balance
-    description: "Trial balance (saldobalanse). Grain: period x account. Debit positive."
+    description: "{{ doc('saldobalanse') }} Grain: period x account. Debit positive."
     config:
       contract: {enforced: true}
     data_tests:
@@ -70,74 +121,94 @@ models:
             combination_of_columns: [period, account_no]
     columns:
       - name: period
+        description: "{{ doc('regnskapsperiode') }}"
         data_type: string
         constraints: [{type: not_null}]
       - name: account_no
+        description: "Account number (NS 4102)."
         data_type: int
         constraints: [{type: not_null}]
       - name: account_name
+        description: "Current account name."
         data_type: string
       - name: account_type
+        description: "asset, liability, equity, revenue, expense or finance."
         data_type: string
       - name: account_class
+        description: "First digit of the account number."
         data_type: int
       - name: opening_balance
+        description: "Inngående saldo: the closing balance of the previous period (0 for P&L accounts at the start of the year)."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: debit
+        description: "Sum of debits in the period."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: credit
+        description: "Sum of credits in the period."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: net_change
+        description: "debit - credit in the period."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: closing_balance
+        description: "Utgående saldo: opening_balance + net_change."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
 
   - name: rpt_ar_aging
-    description: "Aged accounts receivable (aldersfordelt kundereskontro). Grain: open invoice on as_of_date."
+    description: "{{ doc('aldersfordeling') }} Grain: open invoice on as_of_date. Open amounts come from the GL. {{ doc('kundereskontro') }}"
     config:
       contract: {enforced: true}
     columns:
       - name: as_of_date
+        description: "The date the report is measured on: var('as_of_date'), default the latest entry_date."
         data_type: date
         constraints: [{type: not_null}]
       - name: invoice_id
+        description: "Open invoice."
         data_type: bigint
         constraints: [{type: not_null}]
         data_tests: [unique]
       - name: customer_id
+        description: "Customer who owes the amount."
         data_type: bigint
         constraints: [{type: not_null}]
       - name: customer_name
+        description: "Current customer name."
         data_type: string
       - name: invoice_date
+        description: "Invoice date."
         data_type: date
       - name: due_date
+        description: "Due date (derived from payment terms if missing in the source)."
         data_type: date
       - name: open_amount
+        description: "Amount still open on the AR account (1500) on as_of_date."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: days_past_due
+        description: "as_of_date - due_date. 0 or negative = not due yet."
         data_type: int
       - name: aging_bucket
+        description: "not_due, 1-30, 31-60, 61-90 or 90+."
         data_type: string
         constraints: [{type: not_null}]
-
         data_tests:
           - accepted_values:
               arguments:
                 values: ['not_due', '1-30', '31-60', '61-90', '90+']
 
-
   - name: rpt_ar_aging_by_customer
     description: "rpt_ar_aging pivoted: one row per customer, one column per aging bucket."
     columns:
       - name: customer_id
+        description: "Customer with at least one open invoice."
         data_tests: [unique, not_null]
+      - name: total_open
+        description: "Sum of all open amounts for the customer."
 
   - name: rpt_customer_summary
     description: "Summary per customer (oppsummering per kunde). Grain: customer, current version."
@@ -145,36 +216,49 @@ models:
       contract: {enforced: true}
     columns:
       - name: customer_id
+        description: "Customer (current version)."
         data_type: bigint
         constraints: [{type: not_null}]
         data_tests: [unique]
       - name: customer_name
+        description: "Current customer name."
         data_type: string
       - name: city
+        description: "Current city."
         data_type: string
       - name: payment_terms_days
+        description: "Current payment terms in days."
         data_type: int
       - name: invoice_count
+        description: "Number of invoices, all statuses."
         data_type: int
         constraints: [{type: not_null}]
       - name: invoiced_amount
+        description: "Sum of amount_incl_vat over all invoices."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: credited_amount
+        description: "Amount credited (credit notes), from the GL."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: paid_amount
+        description: "Amount paid (bank receipts), from the GL."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: open_amount
+        description: "Amount still open on the AR account."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: overdue_amount
+        description: "The part of open_amount that is past due."
         data_type: decimal(18,2)
         constraints: [{type: not_null}]
       - name: overdue_share
+        description: "overdue_amount / open_amount. Null when nothing is open."
         data_type: decimal(5,4)
       - name: avg_days_to_payment
+        description: "Average days from invoice date to payment. Null when nothing has been paid."
         data_type: decimal(6,1)
       - name: last_invoice_date
+        description: "Date of the latest invoice. Null when the customer has never been invoiced."
         data_type: date
