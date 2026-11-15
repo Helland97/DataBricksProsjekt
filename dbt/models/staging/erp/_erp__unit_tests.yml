@@ -1,0 +1,18 @@
+unit_tests:
+  - name: test_parse_nok_amount_in_stg_erp__invoices
+    description: "Text amounts from the day 15 type change are parsed back to decimals. Real numbers pass through unchanged."
+    model: stg_erp__invoices
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('erp', 'invoices')
+        rows:
+          - {invoice_id: 1, amount_ex_vat: 29857.60, amount_incl_vat: null,   amount_incl_vat__v_text: "37 322,00"}
+          - {invoice_id: 2, amount_ex_vat: 987.60,   amount_incl_vat: null,   amount_incl_vat__v_text: "1 234,50"}
+          - {invoice_id: 3, amount_ex_vat: 400.00,   amount_incl_vat: 500.00, amount_incl_vat__v_text: null}
+    expect:
+      rows:
+        - {invoice_id: 1, amount_incl_vat: 37322.00, is_amount_parsed_from_text: true}
+        - {invoice_id: 2, amount_incl_vat: 1234.50,  is_amount_parsed_from_text: true}
+        - {invoice_id: 3, amount_incl_vat: 500.00,   is_amount_parsed_from_text: false}

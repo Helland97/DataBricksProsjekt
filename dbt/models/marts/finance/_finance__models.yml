@@ -127,6 +127,12 @@ models:
         data_type: string
         constraints: [{type: not_null}]
 
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['not_due', '1-30', '31-60', '61-90', '90+']
+
+
   - name: rpt_ar_aging_by_customer
     description: "rpt_ar_aging pivoted: one row per customer, one column per aging bucket."
     columns:

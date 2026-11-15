@@ -2,31 +2,117 @@ version: 2
 
 models:
   - name: stg_erp__accounts
-    description: "Chart of accounts, typed. One row per account."
+    description: "Chart of accounts (kontoplan, NS 4102), typed. One row per account."
     columns:
       - name: account_no
+        description: "Account number. The first digit is the account class (1 = assets ... 8 = financial items)."
         data_tests: [unique, not_null]
+      - name: account_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['asset', 'liability', 'equity', 'revenue', 'expense', 'finance']
 
   - name: stg_erp__customers
     description: "Customers, latest version per customer_id. is_valid_org_no flags bad org numbers (mod 11)."
     columns:
       - name: customer_id
         data_tests: [unique, not_null]
+      - name: is_valid_org_no
+        description: "False when org_no is missing or fails the mod 11 check digit. Flagged, not dropped."
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "is_valid_org_no"
+          config:
+            severity: warn
+            tags: [audit]
 
   - name: stg_erp__invoices
     description: "Invoices, latest version per invoice_id. Amounts as decimal; text amounts from day 15 parsed back."
     columns:
       - name: invoice_id
-        data_tests: [unique, not_null]
+        data_tests:
+          - unique
+          - not_null
+          - no_sequence_gaps:
+              config:
+                severity: warn
+                tags: [audit]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_erp__customers')
+                field: customer_id
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['sent', 'overdue', 'paid', 'credited']
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "amount_incl_vat = amount_ex_vat + vat_amount"
 
   - name: stg_erp__invoice_lines
     description: "Invoice lines. Only v2 invoices (from day 15) have lines."
     columns:
       - name: invoice_line_id
         data_tests: [unique, not_null]
+      - name: invoice_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_erp__invoices')
+                field: invoice_id
 
   - name: stg_erp__gl_entries
     description: "General ledger lines (hovedbok), latest version per entry_id."
     columns:
       - name: entry_id
         data_tests: [unique, not_null]
+      - name: voucher_no
+        data_tests:
+          - no_sequence_gaps:
+              config:
+                severity: warn
+                tags: [audit]
+      - name: account_no
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_erp__accounts')
+                field: account_no
+      - name: invoice_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_erp__invoices')
+                field: invoice_id
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [voucher_no, line_no]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "debit >= 0 and credit >= 0"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "not (debit > 0 and credit > 0)"
+      - balanced_by:
+          arguments:
+            group_by: voucher_no
+            debit: debit
+            credit: credit
+          config:
+            severity: warn
+            tags: [audit]
+      - not_in_closed_period:
+          arguments:
+            date_column: entry_date
+            posted_column: posted_at
+          config:
+            severity: warn
+            tags: [audit]
