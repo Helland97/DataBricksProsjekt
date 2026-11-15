@@ -36,3 +36,7 @@ data_tests:
   regnskap:
     +store_failures: true
     +schema: audit
+
+vars:
+  ar_account_no: 1500     # kundefordringer (NS 4102)
+  as_of_date: null        # null = latest entry_date in the data; override with --vars

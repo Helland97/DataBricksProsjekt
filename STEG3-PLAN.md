@@ -160,7 +160,7 @@ the answer key for the audit tests.**
 | New mess step | What it does | Which test should catch it |
 |---|---|---|
 | `invoice_gap` | Removes every row for one invoice in the middle of the month, plus its GL vouchers | No gaps in the invoice numbers (and in voucher numbers) |
-| `double_billing` | Re-issues one invoice a few days later with a new number, the same customer, the same lines and amount, plus a matching GL voucher | No double invoices (business duplicate) |
+| `double_billing` | Re-issues one invoice from day 20–27 on the last day, with the next free number, the same customer, the same lines and amount, plus a matching GL voucher | No double invoices (business duplicate) |
 | `backdated` | 2 expense vouchers posted on day 8 with `entry_date` 2026-09-30, in a period that was closed on 2026-10-05 | No postings in closed periods |
 
 Run order: `schema_change → nulls → invoice_gap → double_billing → backdated → late → duplicates`. New vouchers
@@ -174,7 +174,7 @@ finding: "postings to inactive accounts".
 `seeds/accounting_periods.csv`:
 ```csv
 period,period_start,period_end,status,closed_at
-2026-09,2026-09-01,2026-09-30,closed,2026-10-05T16:00:00Z
+2026-09,2026-09-01,2026-09-30,closed,2026-10-05 16:00:00
 2026-10,2026-10-01,2026-10-31,open,
 2026-11,2026-11-01,2026-11-30,open,
 ```
@@ -193,8 +193,8 @@ time. The data's own dates are simulated, so freshness on `updated_at` would alw
 | `stg_erp__customers` | table | `nullif(trim(org_no), '')`, a flag `is_valid_org_no` (mod 11 check digit, as a macro), lower-case email, dedup on `customer_id` |
 | `stg_erp__invoices` | **incremental merge** on `invoice_id` | `coalesce(amount_incl_vat, parse_nok_amount(amount_incl_vat__v_text))`, dates as `date`, `due_date` left null (the fallback needs the customer's payment terms, i.e. a join, so it's done in `fct_invoices`), `vat_amount` fallback, `currency` default, dedup within the batch |
 | `stg_erp__invoice_lines` | table | Join `invoices__lines._dlt_parent_id = invoices._dlt_id` to get `invoice_id`. Only v2 invoices have lines; document that. |
-| `stg_erp__gl_entries` | **incremental merge** on `entry_id` | `debit`/`credit` as `decimal(18,2)`, `entry_date` as `date`, `posted_at` (= `updated_at`), `arrived_at` (= `dlt_loaded_at`), dedup within the batch |
-| `int_gl_vouchers` | view | One row per `voucher_no`: line count, sum debit, sum credit, `is_balanced`, `last_arrived_at` |
+| `stg_erp__gl_entries` | **incremental merge** on `entry_id` | `debit`/`credit` as `decimal(18,2)`, `entry_date` as `date`, `posted_at` (= `updated_at`), `loaded_at` (= `dlt_loaded_at`), dedup within the batch |
+| `int_gl_vouchers` | view | One row per `voucher_no`: line count, sum debit, sum credit, `is_balanced`, `last_loaded_at` |
 | `int_ar_open_items` | view | Per `invoice_id`: sum(debit − credit) on account 1500 up to `as_of_date`, i.e. the AR sub-ledger built from the GL |
 
 **Principle: flag, don't silently drop.** A row with an invalid org.nr is kept with `is_valid_org_no = false`, and a

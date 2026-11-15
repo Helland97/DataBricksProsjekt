@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: int_gl_vouchers
+    description: >
+      One row per voucher (bilag): line count, total debit and credit, and whether it balances.
+      Vouchers with a late line are unbalanced until the line arrives.
+    columns:
+      - name: voucher_no
+        data_tests:
+          - unique
+          - not_null
+
+  - name: int_ar_open_items
+    description: >
+      AR sub-ledger (kundereskontro) built from the GL: the open amount on account var('ar_account_no')
+      per invoice, as of var('as_of_date') (default: the latest entry_date).
+    columns:
+      - name: invoice_id
+        data_tests:
+          - unique
+          - not_null

@@ -1,0 +1,28 @@
+version: 2
+
+seeds:
+  - name: accounting_periods
+    description: >
+      Accounting periods (regnskapsperioder) and when they were closed. A closed period must not get new
+      postings after closed_at. Assumes the generator's default start date 2026-10-01: change both together.
+    config:
+      column_types:
+        period: string
+        period_start: date
+        period_end: date
+        status: string
+        closed_at: timestamp
+    columns:
+      - name: period
+        data_tests:
+          - unique
+          - not_null
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed']
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "status <> 'closed' or closed_at is not null"

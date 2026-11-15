@@ -28,6 +28,15 @@ def iso(ts: datetime) -> str:
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def kid_number(base: str) -> str:
+    """KID with a mod 10 (Luhn) check digit, as used on Norwegian invoices."""
+    total = 0
+    for i, ch in enumerate(reversed(base)):
+        d = int(ch) * (2 if i % 2 == 0 else 1)
+        total += d - 9 if d > 9 else d
+    return base + str((10 - total % 10) % 10)
+
+
 @dataclass
 class Account:
     account_no: int

@@ -10,10 +10,31 @@ from generator.generate import generate, kid_number, org_no, write
 START = date(2026, 10, 1)
 DAYS = 30
 END = START + timedelta(days=DAYS - 1)
+AUDIT_STEPS = ["invoice_gap", "double_billing", "backdated"]
 
 
 def ore(value) -> int:
     return round(value * 100)
+
+
+def assert_vouchers_balance(gl_entries) -> int:
+    """Debit = credit per voucher, counting each entry_id once. Returns the number of vouchers."""
+    debit, credit = defaultdict(int), defaultdict(int)
+    for e in {e["entry_id"]: e for e in gl_entries}.values():
+        debit[e["voucher_no"]] += ore(e["debit"])
+        credit[e["voucher_no"]] += ore(e["credit"])
+    assert debit == credit
+    return len(debit)
+
+
+def assert_receivables_reconcile(data) -> None:
+    """Balance on 1500 = open (sent/overdue) invoices, using each invoice's latest version."""
+    latest = {}
+    for inv in sorted(data["invoices"], key=lambda r: r["updated_at"]):
+        latest[inv["invoice_id"]] = inv
+    open_ar = sum(ore(i["amount_incl_vat"]) for i in latest.values() if i["status"] in ("sent", "overdue"))
+    ledger = sum(ore(e["debit"]) - ore(e["credit"]) for e in data["gl_entries"] if e["account_no"] == 1500)
+    assert ledger == open_ar
 
 
 @pytest.fixture(scope="module")
@@ -28,6 +49,14 @@ def messy():
     return data, report
 
 
+@pytest.fixture()
+def audit():
+    """Only the audit mess, so the accounting checks aren't mixed up with string amounts and duplicates."""
+    data = generate(START, DAYS, seed=42)
+    report = mess.apply(data, AUDIT_STEPS, seed=42, start=START, end=END)
+    return data, report
+
+
 # --- Clean data ---------------------------------------------------------------
 
 
@@ -37,12 +66,7 @@ def test_deterministic():
 
 
 def test_every_voucher_balances(clean):
-    debit, credit = defaultdict(int), defaultdict(int)
-    for e in clean["gl_entries"]:
-        debit[e["voucher_no"]] += ore(e["debit"])
-        credit[e["voucher_no"]] += ore(e["credit"])
-    assert debit == credit
-    assert len(debit) > 100
+    assert assert_vouchers_balance(clean["gl_entries"]) > 100
 
 
 def test_each_gl_line_is_one_sided(clean):
@@ -76,13 +100,7 @@ def test_invoice_totals_match_lines(clean):
 
 
 def test_receivables_reconcile(clean):
-    """Balance on 1500 = open (sent/overdue) invoices, using each invoice's latest version."""
-    latest = {}
-    for inv in sorted(clean["invoices"], key=lambda r: r["updated_at"]):
-        latest[inv["invoice_id"]] = inv
-    open_ar = sum(ore(i["amount_incl_vat"]) for i in latest.values() if i["status"] in ("sent", "overdue"))
-    ledger = sum(ore(e["debit"]) - ore(e["credit"]) for e in clean["gl_entries"] if e["account_no"] == 1500)
-    assert ledger == open_ar
+    assert_receivables_reconcile(clean)
 
 
 def test_invoice_status_updates_exist(clean):
@@ -168,3 +186,53 @@ def test_write_layout(tmp_path, messy):
     assert lines == counts["gl_entries"]
     first = json.loads(files[0].read_text(encoding="utf-8").splitlines()[0])
     assert "_day" not in first
+
+
+# --- Audit mess (planted errors for the dbt accounting controls) --------------
+
+
+def test_audit_mess_keeps_books_consistent(audit):
+    """The planted errors must not break anything else: only their own control should see them."""
+    data, _ = audit
+    assert_vouchers_balance(data["gl_entries"])
+    assert_receivables_reconcile(data)
+
+
+def test_invoice_gap(audit):
+    data, report = audit
+    gap = report["invoice_gap"]
+    ids = {i["invoice_id"] for i in data["invoices"]}
+    assert set(range(min(ids), max(ids) + 1)) - ids == {gap["invoice_id"]}
+    vouchers = {e["voucher_no"] for e in data["gl_entries"]}
+    assert set(range(1, max(vouchers) + 1)) - vouchers == set(gap["vouchers_removed"])
+    assert not any(e["invoice_id"] == gap["invoice_id"] for e in data["gl_entries"])
+
+
+def test_double_billing(audit):
+    data, report = audit
+    r = report["double_billing"]
+    sent = {i["invoice_id"]: i for i in data["invoices"] if i["status"] == "sent"}
+    original, dup = sent[r["original_invoice_id"]], sent[r["duplicate_invoice_id"]]
+    assert dup["invoice_id"] == max(i["invoice_id"] for i in data["invoices"])
+    assert (dup["customer_id"], dup["amount_incl_vat"], dup["lines"]) == (
+        original["customer_id"], original["amount_incl_vat"], original["lines"]
+    )
+    assert dup["kid"] != original["kid"]
+    gap = date.fromisoformat(dup["invoice_date"]) - date.fromisoformat(original["invoice_date"])
+    assert timedelta(0) < gap <= timedelta(days=14)
+
+
+def test_backdated(audit):
+    data, report = audit
+    r = report["backdated"]
+    rows = [e for e in data["gl_entries"] if e["voucher_no"] in r["vouchers"]]
+    assert len(r["vouchers"]) == 2 and len(rows) == 6
+    assert all(date.fromisoformat(e["entry_date"]) < START for e in rows)
+    assert all(e["_day"] == START + timedelta(days=mess.BACKDATED_DAY - 1) for e in rows)
+
+
+def test_audit_steps_can_be_switched_off():
+    data = generate(START, DAYS, seed=42)
+    report = mess.apply(data, [], seed=42, start=START, end=END)
+    assert all(report[step] == "off" for step in AUDIT_STEPS)
+    assert data == generate(START, DAYS, seed=42)

@@ -33,7 +33,9 @@ from generator.model import (
     Invoice,
     InvoiceLine,
     Voucher,
+    kid_number,
 )
+
 
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "data"
 
@@ -121,15 +123,6 @@ def org_no(rng: random.Random) -> str:
         check = 0 if rest == 0 else 11 - rest
         if check != 10:
             return "".join(map(str, digits + [check]))
-
-
-def kid_number(base: str) -> str:
-    """KID with a mod 10 (Luhn) check digit, as used on Norwegian invoices."""
-    total = 0
-    for i, ch in enumerate(reversed(base)):
-        d = int(ch) * (2 if i % 2 == 0 else 1)
-        total += d - 9 if d > 9 else d
-    return base + str((10 - total % 10) % 10)
 
 
 def business_time(rng: random.Random, day: date) -> datetime:
