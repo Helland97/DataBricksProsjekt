@@ -9,3 +9,6 @@
 
 # Only for a private repository. Prefer TF_VAR_github_token over writing it here.
 # github_token = "ghp_..."
+
+# Application (client) id of the CI service principal (STEG5-PLAN.md section 2). Leave out = no CI grants.
+# ci_principal = "00000000-0000-0000-0000-000000000000"

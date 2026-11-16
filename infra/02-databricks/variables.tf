@@ -52,3 +52,9 @@ variable "job_schedule_paused" {
   type        = bool
   default     = true
 }
+
+variable "ci_principal" {
+  description = "Application (client) id of the CI service principal gh-dbxprosjekt-ci (STEG5 section 2). Null = no CI grants."
+  type        = string
+  default     = null
+}

@@ -16,8 +16,6 @@ locals {
   azure = data.terraform_remote_state.azure.outputs
 }
 
-data "databricks_current_user" "me" {}
-
 # --- Unity Catalog: storage credential, external location, catalog -----------
 
 resource "databricks_storage_credential" "lake" {
@@ -102,7 +100,7 @@ resource "databricks_git_credential" "github" {
 # Git folder in the workspace, for interactive work against the repo.
 resource "databricks_repo" "project" {
   url    = var.git_repo_url
-  path   = "${data.databricks_current_user.me.home}/DataBricksProsjekt"
+  path   = "/Shared/DataBricksProsjekt" # same for every caller. Written without /Workspace, the way Databricks stores it
   branch = var.git_branch
 
   depends_on = [databricks_git_credential.github]
