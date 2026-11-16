@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # Auto Loader vs. dlt (step 2, section 9)
 # MAGIC
@@ -187,15 +191,18 @@ display(
 # COMMAND ----------
 
 # The nested list: same data, two shapes. Auto Loader keeps lines as an array on the invoice row ...
-display(
-    spark.sql(f"""
-    SELECT invoice_id, line.line_no, line.description, line.amount_ex_vat
-    FROM {TARGET} LATERAL VIEW explode(lines) AS line
-    WHERE lines IS NOT NULL
-    ORDER BY invoice_id, line.line_no
-    LIMIT 10
-""")
-)
+if "lines" not in spark.table(TARGET).columns:
+    print("No 'lines' column yet: land day 15 and run all again.")
+else:
+    display(
+        spark.sql(f"""
+        SELECT invoice_id, line.line_no, line.description, line.amount_ex_vat
+        FROM {TARGET} LATERAL VIEW explode(lines) AS line
+        WHERE lines IS NOT NULL
+        ORDER BY invoice_id, line.line_no
+        LIMIT 10
+    """)
+    )
 
 # COMMAND ----------
 
