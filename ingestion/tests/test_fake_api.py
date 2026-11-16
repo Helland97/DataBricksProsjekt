@@ -2,9 +2,8 @@ import json
 from datetime import date, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
-
 from fake_api.app import create_app
+from fastapi.testclient import TestClient
 from generator import mess
 from generator.generate import generate, write
 

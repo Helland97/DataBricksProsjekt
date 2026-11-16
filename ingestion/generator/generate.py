@@ -36,7 +36,6 @@ from generator.model import (
     kid_number,
 )
 
-
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "data"
 
 # --- Chart of accounts (subset of NS 4102) ------------------------------------
@@ -119,7 +118,7 @@ def org_no(rng: random.Random) -> str:
     weights = [3, 2, 7, 6, 5, 4, 3, 2]
     while True:
         digits = [rng.randint(8, 9)] + [rng.randint(0, 9) for _ in range(7)]
-        rest = sum(d * w for d, w in zip(digits, weights)) % 11
+        rest = sum(d * w for d, w in zip(digits, weights, strict=True)) % 11
         check = 0 if rest == 0 else 11 - rest
         if check != 10:
             return "".join(map(str, digits + [check]))
@@ -294,11 +293,9 @@ class Generator:
         if vat:
             lines.append(GlLine(2700, credit_ore=vat))
         if reverse:
-            lines = [GlLine(l.account_no, debit_ore=l.credit_ore, credit_ore=l.debit_ore) for l in lines]
+            lines = [GlLine(line.account_no, debit_ore=line.credit_ore, credit_ore=line.debit_ore) for line in lines]
         kind = "Kreditnota" if reverse else "Faktura"
-        self.vouchers.append(
-            Voucher(ts, f"{kind} {inv.invoice_id}", lines, inv.invoice_id, inv.customer_id)
-        )
+        self.vouchers.append(Voucher(ts, f"{kind} {inv.invoice_id}", lines, inv.invoice_id, inv.customer_id))
 
     def _expenses_for_day(self, day: date) -> None:
         if day.day == 1:

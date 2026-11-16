@@ -28,10 +28,10 @@ SCHEMA_CHANGE_DAY = 15  # 1-based day number on which the source ships invoice "
 V2_FIELDS = ("currency", "kid", "lines")
 
 # Audit mess. Day numbers are 1-based, like SCHEMA_CHANGE_DAY.
-INVOICE_GAP_DAYS = (10, 20)      # the removed invoice is dated on one of these days
-DOUBLE_BILLING_DAYS = (20, 27)   # the original is dated on one of these days; the copy on the last day
-BACKDATED_DAY = 8                # the day the backdated vouchers are posted (after the period close)
-BACKDATED_EXPENSES = [           # account, description, VAT rate
+INVOICE_GAP_DAYS = (10, 20)  # the removed invoice is dated on one of these days
+DOUBLE_BILLING_DAYS = (20, 27)  # the original is dated on one of these days; the copy on the last day
+BACKDATED_DAY = 8  # the day the backdated vouchers are posted (after the period close)
+BACKDATED_EXPENSES = [  # account, description, VAT rate
     (6340, "Strøm september, etterregistrert", 25),
     (6800, "Kontorrekvisita september, etterregistrert", 25),
 ]
@@ -106,10 +106,9 @@ def invoice_gap(data: Dataset, rng: random.Random, start: date, **_) -> dict:
     controls can see it.
     """
     lo, hi = (start + timedelta(days=d - 1) for d in INVOICE_GAP_DAYS)
-    candidates = sorted({
-        r["invoice_id"] for r in data["invoices"]
-        if lo <= date.fromisoformat(r["invoice_date"]) <= hi
-    })
+    candidates = sorted(
+        {r["invoice_id"] for r in data["invoices"] if lo <= date.fromisoformat(r["invoice_date"]) <= hi}
+    )
     if not candidates:
         return {"skipped": "no invoices in the window"}
     victim = rng.choice(candidates)
@@ -127,10 +126,7 @@ def double_billing(data: Dataset, rng: random.Random, start: date, end: date, **
     voucher; only a business rule (same customer + amount + lines within 14 days) can see it.
     """
     lo, hi = (start + timedelta(days=d - 1) for d in DOUBLE_BILLING_DAYS)
-    sent = [
-        r for r in data["invoices"]
-        if r["status"] == "sent" and lo <= date.fromisoformat(r["invoice_date"]) <= hi
-    ]
+    sent = [r for r in data["invoices"] if r["status"] == "sent" and lo <= date.fromisoformat(r["invoice_date"]) <= hi]
     if not sent:
         return {"skipped": "no invoices in the window"}
     original = rng.choice(sent)
@@ -191,20 +187,22 @@ def backdated(data: Dataset, rng: random.Random, start: date, **_) -> dict:
         vat = round(net * vat_rate / 100)
         lines = [(account, net, 0), (2710, vat, 0), (2400, 0, net + vat)]
         for n, (account_no, debit, credit) in enumerate(lines, start=1):
-            data["gl_entries"].append({
-                "entry_id": f"{voucher_no}-{n}",
-                "voucher_no": voucher_no,
-                "line_no": n,
-                "entry_date": entry_date.isoformat(),
-                "account_no": account_no,
-                "description": description,
-                "debit": kroner(debit),
-                "credit": kroner(credit),
-                "invoice_id": None,
-                "customer_id": None,
-                "updated_at": iso(posted),
-                "_day": posted_day,
-            })
+            data["gl_entries"].append(
+                {
+                    "entry_id": f"{voucher_no}-{n}",
+                    "voucher_no": voucher_no,
+                    "line_no": n,
+                    "entry_date": entry_date.isoformat(),
+                    "account_no": account_no,
+                    "description": description,
+                    "debit": kroner(debit),
+                    "credit": kroner(credit),
+                    "invoice_id": None,
+                    "customer_id": None,
+                    "updated_at": iso(posted),
+                    "_day": posted_day,
+                }
+            )
         vouchers.append(voucher_no)
     _resort(data, "gl_entries")
     return {"entry_date": entry_date.isoformat(), "posted_day": posted_day.isoformat(), "vouchers": vouchers}

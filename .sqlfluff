@@ -9,8 +9,11 @@ rules = core
 exclude_rules = LT01, LT02
 
 [sqlfluff:templater:jinja]
-apply_dbt_builtins = True          # ref(), source(), config(), is_incremental() ...
-load_macros_from_path = dbt/macros # your own macros (dlt_loaded_at, parse_nok_amount, ...)
+# INI format: comments must be on their own line. An end-of-line comment becomes part of the value.
+# dbt's ref(), source(), config(), is_incremental() ...
+apply_dbt_builtins = True
+# Your own macros (dlt_loaded_at, parse_nok_amount, ...)
+load_macros_from_path = dbt/macros
 
 [sqlfluff:rules:capitalisation.keywords]
 capitalisation_policy = lower

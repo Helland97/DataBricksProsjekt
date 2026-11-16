@@ -16,7 +16,7 @@ with the real pipelines in the same dataset.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import dlt
 
@@ -25,7 +25,7 @@ from pipelines.databricks_setup import destination
 
 @dlt.resource(name="smoke_test", write_disposition="replace", primary_key="id")
 def smoke_rows():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     yield [
         {"id": 1, "message": "hei fra dlt", "loaded_at": now},
         {"id": 2, "message": "æøå survives the trip", "loaded_at": now},
