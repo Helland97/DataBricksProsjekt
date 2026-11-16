@@ -1,0 +1,22 @@
+[sqlfluff]
+dialect = databricks
+# The jinja templater, not dbt's: the dbt templater needs a working Databricks login just to lint.
+templater = jinja
+max_line_length = 120
+rules = core
+# LT01/LT02 = spacing and indentation. sqlfluff checks the SQL *after* Jinja expands the macros, so the aligned
+# `as` columns look crooked when they aren't (180 false positives). Layout is a code review matter here.
+exclude_rules = LT01, LT02
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True          # ref(), source(), config(), is_incremental() ...
+load_macros_from_path = dbt/macros # your own macros (dlt_loaded_at, parse_nok_amount, ...)
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
