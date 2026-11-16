@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -39,6 +39,7 @@ class Utf8JSONResponse(JSONResponse):
     # JSON is always UTF-8, but Windows PowerShell 5.1 guesses Latin-1 without an explicit charset
     # and turns "Opplæring" into "OpplÃ¦ring".
     media_type = "application/json; charset=utf-8"
+
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
@@ -84,8 +85,8 @@ class Source:
 def to_cursor(ts: datetime) -> str:
     """Normalise to the same string format the data uses, so plain string comparison works."""
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = ts.replace(tzinfo=UTC)
+    return ts.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class ClockChange(BaseModel):
@@ -93,7 +94,7 @@ class ClockChange(BaseModel):
     advance: int | None = None
 
     @model_validator(mode="after")
-    def exactly_one(self) -> "ClockChange":
+    def exactly_one(self) -> ClockChange:
         if (self.day is None) == (self.advance is None):
             raise ValueError("send exactly one of 'day' or 'advance'")
         return self

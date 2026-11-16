@@ -3,7 +3,6 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 import pytest
-
 from generator import mess
 from generator.generate import generate, kid_number, org_no, write
 
@@ -124,7 +123,7 @@ def test_check_digits():
     for _ in range(50):
         n = org_no(rng)
         weights = [3, 2, 7, 6, 5, 4, 3, 2, 1]
-        assert len(n) == 9 and sum(int(d) * w for d, w in zip(n, weights)) % 11 == 0
+        assert len(n) == 9 and sum(int(d) * w for d, w in zip(n, weights, strict=True)) % 11 == 0
     assert kid_number("7992739871") == "79927398713"  # textbook Luhn example
 
 
@@ -133,8 +132,9 @@ def test_check_digits():
 
 def test_duplicates_are_exact_copies(messy):
     data, report = messy
-    rows = [json.dumps({k: v for k, v in r.items() if k != "_day"}, sort_keys=True, default=str)
-            for r in data["gl_entries"]]
+    rows = [
+        json.dumps({k: v for k, v in r.items() if k != "_day"}, sort_keys=True, default=str) for r in data["gl_entries"]
+    ]
     dupes = sum(n - 1 for n in Counter(rows).values() if n > 1)
     expected = report["duplicates"]["gl_entries"]
     assert dupes == expected["same_day"] + expected["next_day"] > 0
@@ -215,7 +215,9 @@ def test_double_billing(audit):
     original, dup = sent[r["original_invoice_id"]], sent[r["duplicate_invoice_id"]]
     assert dup["invoice_id"] == max(i["invoice_id"] for i in data["invoices"])
     assert (dup["customer_id"], dup["amount_incl_vat"], dup["lines"]) == (
-        original["customer_id"], original["amount_incl_vat"], original["lines"]
+        original["customer_id"],
+        original["amount_incl_vat"],
+        original["lines"],
     )
     assert dup["kid"] != original["kid"]
     gap = date.fromisoformat(dup["invoice_date"]) - date.fromisoformat(original["invoice_date"])

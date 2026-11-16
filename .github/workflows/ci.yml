@@ -1,0 +1,98 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: this workflow only reads the code. No logins, no secrets.
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the run that's still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "ingestion/uv.lock"
+      - name: ruff check
+        run: uvx ruff@0.14.5 check ingestion
+      - name: ruff format
+        run: uvx ruff@0.14.5 format --check ingestion
+      - name: pytest
+        working-directory: ingestion
+        run: |
+          uv sync --locked          # fails if uv.lock doesn't match pyproject.toml
+          uv run pytest -q
+
+  sql-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: sqlfluff lint
+        run: uvx --from sqlfluff==3.5.0 sqlfluff lint dbt/models dbt/tests dbt/macros
+
+  dbt-parse:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    env:
+      DBT_PROFILES_DIR: ${{ github.workspace }}/dbt/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "dbt/uv.lock"
+      - run: uv sync --locked
+      - run: uv run dbt deps
+      - run: uv run dbt parse --no-partial-parse
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.0"   # same as your local version
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+      - name: terraform validate
+        run: |
+          for dir in infra/01-azure infra/02-databricks; do
+            echo "::group::$dir"
+            terraform -chdir=$dir init -backend=false -input=false
+            terraform -chdir=$dir validate
+            echo "::endgroup::"
+          done
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # tflint --init downloads plugins from GitHub; avoids rate limits
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --chdir=infra --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl"
+
+  # The ONLY check branch protection requires. New jobs are added to `needs` here,
+  # and branch protection never has to change.
+  ci-ok:
+    if: always()
+    needs: [python, sql-lint, dbt-parse, terraform]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs passed?
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi

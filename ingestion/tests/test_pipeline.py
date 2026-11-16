@@ -13,7 +13,6 @@ from datetime import date, timedelta
 import dlt
 import pytest
 import uvicorn
-
 from fake_api.app import create_app
 from generator import mess
 from generator.generate import generate, write
@@ -140,9 +139,10 @@ def test_freeze_types_stops_day_15_without_getting_stuck(pipeline, api_url):
         run_days(pipeline, api_url, [15], contract="freeze-types", verbose=False)
     # Nothing from day 15 was loaded, and the cursor went back to day 14.
     assert compare(pipeline, api_url)["invoices"]["missing"] > 0
-    assert pipeline.state["sources"]["regnskap"]["resources"]["invoices"]["incremental"]["updated_at"][
-        "last_value"
-    ] < "2026-10-15"
+    assert (
+        pipeline.state["sources"]["regnskap"]["resources"]["invoices"]["incremental"]["updated_at"]["last_value"]
+        < "2026-10-15"
+    )
     # The rejected package was aborted, so a normal run picks up day 15 completely.
     run_days(pipeline, api_url, [15], verbose=False)
     assert all_clean(compare(pipeline, api_url))

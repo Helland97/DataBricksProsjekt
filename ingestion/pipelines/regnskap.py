@@ -34,13 +34,13 @@ Strategy per resource:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import dlt
 import requests  # plain requests for the clock and the comparison: fail fast if the API is down
-from dlt.sources.helpers import requests as dlt_requests  # retrying client, for actual loading
 from dlt.common.schema.exceptions import DataValidationError
+from dlt.sources.helpers import requests as dlt_requests  # retrying client, for actual loading
 from dlt.sources.rest_api import rest_api_resources
 
 from pipelines.databricks_setup import destination as make_destination
@@ -197,7 +197,7 @@ def fetch_all(api_url: str, path: str) -> list[dict]:
 
 def as_cursor(value: Any) -> str:
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return str(value)
 
 
@@ -236,15 +236,17 @@ def compare(pipeline: dlt.Pipeline, api_url: str) -> dict[str, dict]:
 def cursors(pipeline: dlt.Pipeline) -> dict[str, str]:
     resources = pipeline.state.get("sources", {}).get("regnskap", {}).get("resources", {})
     return {
-        name: r.get("incremental", {}).get("updated_at", {}).get("last_value", "-")
-        for name, r in resources.items()
+        name: r.get("incremental", {}).get("updated_at", {}).get("last_value", "-") for name, r in resources.items()
     }
 
 
 def print_report(pipeline: dlt.Pipeline, api_url: str) -> dict[str, dict]:
     stats = compare(pipeline, api_url)
     cur = cursors(pipeline)
-    header = f"{'table':<11} {'source':>7} {'keys':>6} │ {'bronze':>7} {'keys':>6} {'missing':>8} {'dupes':>6} {'stale':>6}  cursor (last_value)"
+    header = (
+        f"{'table':<11} {'source':>7} {'keys':>6} │ {'bronze':>7} {'keys':>6}"
+        f" {'missing':>8} {'dupes':>6} {'stale':>6}  cursor (last_value)"
+    )
     print(header)
     print("─" * len(header))
     for name, s in stats.items():
@@ -303,7 +305,7 @@ def print_schema(pipeline: dlt.Pipeline) -> None:
                 total, filled = 0, [0] * len(cols)
             parent = f"  (child of {table['parent']}, linked by _dlt_parent_id)" if table.get("parent") else ""
             print(f"  {name}: {total} rows{parent}")
-            for col, n in zip(cols, filled):
+            for col, n in zip(cols, filled, strict=True):
                 mark = " \u25b2" if "__v_" in col else ""
                 print(f"      {col}:{columns[col].get('data_type')} {n}/{total}{mark}")
 
@@ -335,7 +337,9 @@ def main() -> None:
     try:
         clock = requests.get(f"{args.api_url}/_clock", timeout=5).json()
     except requests.exceptions.ConnectionError:
-        raise SystemExit(f"The fake API isn't running on {args.api_url}. Start it: uv run uvicorn fake_api.app:app")
+        raise SystemExit(
+            f"The fake API isn't running on {args.api_url}. Start it: uv run uvicorn fake_api.app:app"
+        ) from None
 
     pipeline = dlt.pipeline(
         pipeline_name=f"regnskap_{args.destination}",

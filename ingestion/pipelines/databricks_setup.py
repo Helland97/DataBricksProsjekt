@@ -48,9 +48,7 @@ def use_azure_cli_auth() -> None:
 
     hostname = dlt.secrets.get(f"{CREDS}.server_hostname") or dlt.config.get(f"{CREDS}.server_hostname")
     if not hostname:
-        raise SystemExit(
-            f"{CREDS}.server_hostname is not set. Copy .dlt/secrets.toml.example to .dlt/secrets.toml."
-        )
+        raise SystemExit(f"{CREDS}.server_hostname is not set. Copy .dlt/secrets.toml.example to .dlt/secrets.toml.")
     os.environ.setdefault("DATABRICKS_HOST", f"https://{hostname}")
     os.environ.setdefault("DATABRICKS_AUTH_TYPE", "azure-cli")
 
