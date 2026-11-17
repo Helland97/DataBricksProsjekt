@@ -97,8 +97,10 @@ resource "databricks_job" "daily" {
       commands = [
         "dbt deps",
         "dbt source freshness",
-        "dbt build --exclude-resource-type unit_test",
+        # snapshot_time = the simulated date from the ingest task (task value). See STEG5 section 5.2.
+        "dbt build --exclude-resource-type unit_test --vars '{\"snapshot_time\": \"{{tasks.ingest.values.sim_date}}\"}'",
       ]
+
       warehouse_id = databricks_sql_endpoint.this.id
       catalog      = databricks_catalog.this.name
       schema       = "silver"
