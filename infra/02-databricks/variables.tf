@@ -48,9 +48,11 @@ variable "github_token" {
 }
 
 variable "job_schedule_paused" {
-  description = "Keep the daily regnskap-daily schedule paused (run it manually until the pipeline is ready)."
+  description = "Pause the daily regnskap-daily schedule. Changed through a PR, so CI's plan and the real job agree."
   type        = bool
-  default     = true
+  # The schedule's state lives here, not in terraform.tfvars: CI has no tfvars, and with a different value its
+  # plan would show "pause the schedule" on every PR. Pausing or resuming = a one-line PR + terraform apply.
+  default = false
 }
 
 variable "ci_principal" {
@@ -63,4 +65,6 @@ variable "alert_emails" {
   description = "Email addresses that get a message when the job fails. Set in terraform.tfvars, not in code (public repo)."
   type        = list(string)
   default     = []
+  # The plan is posted on PRs in a public repo (terraform-plan.yml): print "(sensitive value)", not the address.
+  sensitive = true
 }
