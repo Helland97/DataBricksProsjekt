@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           cache-dependency-glob: "ingestion/uv.lock"
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: sqlfluff lint
         run: uvx --from sqlfluff==3.5.0 sqlfluff lint dbt/models dbt/tests dbt/macros
 
@@ -48,7 +48,7 @@ jobs:
         working-directory: dbt
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           cache-dependency-glob: "dbt/uv.lock"
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "1.17.0"   # same as your local version
       - name: terraform fmt
@@ -96,7 +96,7 @@ jobs:
             terraform -chdir=$dir validate
             echo "::endgroup::"
           done
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@90f302c255ef959cbfb4bd10581afecdb7ece3e6 # v4.1.1
       - name: tflint
         env:
           GITHUB_TOKEN: ${{ github.token }}   # tflint --init downloads plugins from GitHub; avoids rate limits
@@ -104,11 +104,20 @@ jobs:
           tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
           tflint --chdir=infra --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl"
 
+  # The Databricks job's pinned packages (infra/02-databricks/jobs.tf) must match the lock files, so the job
+  # runs exactly what the tests run. Catches a Dependabot/uv lock update that forgot the job.
+  pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Job pins == uv.lock
+        run: python3 ci/check_pins.py
+
   # The ONLY check branch protection requires. New jobs are added to `needs` here,
   # and branch protection never has to change.
   ci-ok:
     if: always()
-    needs: [python, sql-lint, dbt-parse, terraform]
+    needs: [python, sql-lint, dbt-parse, terraform, pins]
     runs-on: ubuntu-latest
     steps:
       - name: All jobs passed?
