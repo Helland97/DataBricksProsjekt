@@ -446,7 +446,7 @@ is worse than one that fails. This is the same check you ran by eye in step 2, n
 .sqlfluff                # SQL lint config (dbt/)
 ruff.toml                # Python lint/format config (repo root, covers ingestion/ and ci/)
 .tflint.hcl              # tflint with the azurerm ruleset
-dbt/profiles.ci.yml      # committed, only env_var() lookups, no values
+                         # (no committed dbt profile: the workflows write their own, see 7.3)
 dbt/macros/drop_pr_schemas.sql
 ci/check_pins.py         # job pins in jobs.tf == uv.lock versions
 ```
@@ -459,7 +459,7 @@ Runs on `pull_request` and on `push` to `main`. Top-level `permissions: contents
 |---|---|
 | `python` | `astral-sh/setup-uv`, `uv sync --directory ingestion`, `ruff check`, `ruff format --check`, `uv run --directory ingestion pytest`. The pipeline tests run on DuckDB with the fake API, so they need no secrets |
 | `sql-lint` | `sqlfluff lint dbt/models dbt/tests dbt/macros`. Use the **jinja templater** with `apply_dbt_builtins = True`, not the dbt templater. The dbt templater needs a working profile, which forks don't have |
-| `dbt-parse` | `dbt deps` + `dbt parse` with `profiles.ci.yml` and dummy env values. Catches broken `ref()`s, YAML errors and bad Jinja without a warehouse. **Check** that `dbt-databricks` parses without connecting |
+| `dbt-parse` | `dbt deps` + `dbt parse` with a parse-only profile the workflow writes to `$RUNNER_TEMP`. Catches broken `ref()`s, YAML errors and bad Jinja without a warehouse. **Check** that `dbt-databricks` parses without connecting |
 | `terraform` | `terraform fmt -check -recursive infra`, then per module `terraform init -backend=false` + `terraform validate`, then `tflint --recursive` |
 | `pins` | `python ci/check_pins.py`: read the pinned versions in `jobs.tf` and compare with `ingestion/uv.lock` and `dbt/uv.lock` |
 | **`ci-ok`** | `needs: [all of the above]`, `if: always()`, fails if any needed job failed. **This is the only required check** |
@@ -492,7 +492,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DBT_SCHEMA_PREFIX: pr_${{ github.event.pull_request.number }}_
-      DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
+      DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles   # written by a step (see below), never committed
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       # tier B: DATABRICKS_CLIENT_ID/SECRET from secrets. tier C: DATABRICKS_TOKEN from secrets.
@@ -525,11 +525,11 @@ jobs:
   target name. An env var works the same everywhere.
 - Fix `reset_snapshots.sql`: use `generate_schema_name('silver', none)` instead of the literal `'silver'`, so it never
   touches prod snapshots from a PR.
-- `profiles.ci.yml` (committed, target `ci`): `host: "{{ env_var('DATABRICKS_HOST') }}"`, `http_path`,
-  `catalog: lakehouse_dev`, `schema: silver`, and the `auth_type` for your tier (`oauth` with
-  `client_id`/`client_secret` from `env_var`, or `token: "{{ env_var('DATABRICKS_TOKEN') }}"`). **Check** that the
-  CI file doesn't collide with your local `profiles.yml` (it's gitignored, and `DBT_PROFILES_DIR` decides which one
-  is read). Name it `profiles.yml` inside a `dbt/ci/` folder if dbt insists on the file name.
+- **The profile is written by the workflow, never committed.** `profiles.yml` is gitignored everywhere, and that rule
+  stays. The same way as the `dbt-parse` job in `ci.yml`: a step writes `$RUNNER_TEMP/dbt-profiles/profiles.yml`
+  (target `ci`) and sets `DBT_PROFILES_DIR` to that folder. For real builds the profile uses
+  `host: "{{ env_var('DATABRICKS_HOST') }}"`, `http_path`, `catalog: lakehouse_dev`, `schema: silver`, and the
+  login for your tier, so the values still come from GitHub variables and nothing secret is written to the file.
 - Full build per PR is fine: the data is small and the warehouse is serverless. **Stretch: Slim CI.** On push to
   `main`, run `dbt parse` and upload `manifest.json` as an artifact. In the PR, download it and run
   `dbt build --select state:modified+ --defer --state prod-manifest/`. Only changed models and their children are
@@ -640,7 +640,7 @@ This rule is what turns "the job runs whatever is on `main`" into "the job runs 
 4. `fake_api/serve.py`, refactor `tests/test_pipeline.py` to use it. Tests stay green.
 5. `ingestion/jobs/daily_load.py`, `resolve_day`, `check_bronze`, the `databricks_setup.py` change, and unit tests.
 6. `jobs.tf` with `moved`, pinned dependencies, `ci/check_pins.py`. Apply with the schedule paused. Section 6, steps 2–5.
-7. `generate_schema_name` + `reset_snapshots` fix + `profiles.ci.yml` + `dbt-pr.yml` + `drop_pr_schemas` +
+7. `generate_schema_name` + `reset_snapshots` fix + the profile step + `dbt-pr.yml` + `drop_pr_schemas` +
    `pr-cleanup.yml`. Add `dbt-pr / build` to the required checks.
 8. Tier A: `terraform-plan.yml`.
 9. Turn on the schedule (section 6, step 6). Run the end-to-end exercise (section 8).
