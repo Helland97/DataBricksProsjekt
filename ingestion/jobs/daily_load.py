@@ -21,8 +21,19 @@ import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
+
+def _this_file() -> str:
+    """The path of this file. A Databricks spark_python_task doesn't run the file as a script: it reads it
+    and calls exec(compile(code, filename, "exec")), so __file__ is never set (NameError on the first run,
+    STEG5 section 6.4). compile() does store the path in the code object, so read it from there instead."""
+    try:
+        return __file__
+    except NameError:
+        return sys._getframe(1).f_code.co_filename
+
+
 # Run as a script, Python only puts jobs/ on sys.path. The modules below live in ingestion/.
-INGESTION_DIR = Path(__file__).resolve().parents[1]
+INGESTION_DIR = Path(_this_file()).resolve().parents[1]
 sys.path.insert(0, str(INGESTION_DIR))
 
 import dlt
