@@ -47,13 +47,32 @@ jobs:
       run:
         working-directory: dbt
     env:
-      DBT_PROFILES_DIR: ${{ github.workspace }}/dbt/ci
+      # Outside the repo: profiles.yml is gitignored everywhere, so CI writes its own (next step).
+      DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "dbt/uv.lock"
+      # A parse-only profile. `dbt parse` needs a profile to start but never connects, so the values
+      # are dummies. Nothing here is a secret, and nothing is committed.
+      - name: Write parse-only dbt profile
+        run: |
+          mkdir -p "$DBT_PROFILES_DIR"
+          cat > "$DBT_PROFILES_DIR/profiles.yml" <<'EOF'
+          regnskap:
+            target: ci
+            outputs:
+              ci:
+                type: databricks
+                catalog: lakehouse_dev
+                schema: silver
+                host: parse-only.invalid
+                http_path: /sql/1.0/warehouses/parse-only
+                token: parse-only
+                threads: 1
+          EOF
       - run: uv sync --locked
       - run: uv run dbt deps
       - run: uv run dbt parse --no-partial-parse
