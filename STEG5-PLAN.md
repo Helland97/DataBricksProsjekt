@@ -501,7 +501,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DBT_SCHEMA_PREFIX: pr_${{ github.event.pull_request.number }}_
-      DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles   # written by a step (see below), never committed
+      # NOT DBT_PROFILES_DIR here: `runner.temp` isn't allowed in a job's env: block, and using it makes the
+      # whole workflow invalid (GitHub then runs no checks at all). The profile step sets it via $GITHUB_ENV.
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       # tier B: DATABRICKS_CLIENT_ID/SECRET from secrets. tier C: DATABRICKS_TOKEN from secrets.

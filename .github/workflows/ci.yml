@@ -46,9 +46,6 @@ jobs:
     defaults:
       run:
         working-directory: dbt
-    env:
-      # Outside the repo: profiles.yml is gitignored everywhere, so CI writes its own (next step).
-      DBT_PROFILES_DIR: ${{ runner.temp }}/dbt-profiles
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -57,8 +54,13 @@ jobs:
           cache-dependency-glob: "dbt/uv.lock"
       # A parse-only profile. `dbt parse` needs a profile to start but never connects, so the values
       # are dummies. Nothing here is a secret, and nothing is committed.
+      # Outside the repo: profiles.yml is gitignored everywhere, so CI writes its own. Set here and not in the
+      # job's env: block, because the runner context (runner.temp) isn't available there. That mistake made
+      # the whole workflow invalid, so GitHub ran no checks at all for PR #2-#10.
       - name: Write parse-only dbt profile
         run: |
+          DBT_PROFILES_DIR="$RUNNER_TEMP/dbt-profiles"
+          echo "DBT_PROFILES_DIR=$DBT_PROFILES_DIR" >> "$GITHUB_ENV"   # for the steps after this one
           mkdir -p "$DBT_PROFILES_DIR"
           cat > "$DBT_PROFILES_DIR/profiles.yml" <<'EOF'
           regnskap:

@@ -25,6 +25,12 @@ repos:
 
   - repo: local
     hooks:
+      # An invalid workflow doesn't fail loudly: GitHub just runs no checks. Catch it before the commit.
+      - id: actionlint
+        name: actionlint (GitHub workflows)
+        entry: uvx --from actionlint-py==1.7.12.25 actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
       - id: terraform-fmt
         name: terraform fmt
         entry: terraform fmt -recursive infra
