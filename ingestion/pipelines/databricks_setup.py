@@ -22,6 +22,9 @@ preferred format.
 
 Login without storing a token
 -----------------------------
+Inside Databricks (a job or a notebook) none of this applies: there is no `az`, and the runtime gives the
+SDK the job's own credentials. use_azure_cli_auth() then does nothing.
+
 If .dlt/secrets.toml has no access_token and no client_id/client_secret, dlt falls back to
 the Databricks SDK's "unified auth" (WorkspaceClient()). The SDK needs to know the workspace host,
 which it normally reads from DATABRICKS_HOST or ~/.databrickscfg. use_azure_cli_auth() fills that in
@@ -40,7 +43,16 @@ from dlt.common.destination import Destination
 CREDS = "destination.databricks.credentials"
 
 
+def running_on_databricks() -> bool:
+    """Databricks sets DATABRICKS_RUNTIME_VERSION on all its compute, including serverless jobs."""
+    return "DATABRICKS_RUNTIME_VERSION" in os.environ
+
+
 def use_azure_cli_auth() -> None:
+    if running_on_databricks():
+        # There's no `az` here. The Databricks SDK's default auth (the same fallback dlt uses) picks up the
+        # job's own credentials from the runtime, so the job writes as its run-as identity.
+        return
     has_token = dlt.secrets.get(f"{CREDS}.access_token")
     has_sp = dlt.secrets.get(f"{CREDS}.client_id") and dlt.secrets.get(f"{CREDS}.client_secret")
     if has_token or has_sp:

@@ -359,6 +359,29 @@ def write(data: Dataset, out: Path) -> dict[str, int]:
     return counts
 
 
+def write_dataset(out: Path, start: date, days: int, seed: int, steps: list[str] | None = None) -> dict:
+    """Generate, apply the mess, write the files and _manifest.json. Returns the manifest.
+
+    Used by the CLI below, by the pipeline tests and by jobs/daily_load.py, so all three get the same data.
+    steps=None means every mess step.
+    """
+    steps = list(mess.MESS_STEPS) if steps is None else steps
+    data = generate(start, days, seed)
+    end = start + timedelta(days=days - 1)
+    report = mess.apply(data, steps, seed=seed, start=start, end=end)
+    counts = write(data, out)
+    manifest = {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": days,
+        "seed": seed,
+        "mess": report,
+        "rows": counts,
+    }
+    (out / "_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--start", type=date.fromisoformat, default=date(2026, 10, 1))
@@ -382,20 +405,7 @@ def main() -> None:
         if unknown:
             p.error(f"unknown mess step(s): {', '.join(sorted(unknown))}")
 
-    data = generate(args.start, args.days, args.seed)
-    end = args.start + timedelta(days=args.days - 1)
-    report = mess.apply(data, steps, seed=args.seed, start=args.start, end=end)
-    counts = write(data, args.out)
-
-    manifest = {
-        "start": args.start.isoformat(),
-        "end": end.isoformat(),
-        "days": args.days,
-        "seed": args.seed,
-        "mess": report,
-        "rows": counts,
-    }
-    (args.out / "_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    manifest = write_dataset(args.out, args.start, args.days, args.seed, steps)
     print(json.dumps(manifest, indent=2))
 
 

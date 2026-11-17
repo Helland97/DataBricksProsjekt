@@ -4,18 +4,12 @@ These are the section 6 experiments as tests. Everything runs in a temp folder: 
 its own DuckDB file and its own dlt pipelines_dir, so ~/.dlt and ingestion/data are not touched.
 """
 
-import json
-import socket
-import threading
-import time
-from datetime import date, timedelta
+from datetime import date
 
 import dlt
 import pytest
-import uvicorn
-from fake_api.app import create_app
-from generator import mess
-from generator.generate import generate, write
+from fake_api.serve import serve
+from generator.generate import write_dataset
 from pipelines.regnskap import ContractViolation, compare, run_days
 
 START = date(2026, 10, 1)
@@ -25,22 +19,9 @@ DAYS = 30
 @pytest.fixture(scope="module")
 def api_url(tmp_path_factory):
     out = tmp_path_factory.mktemp("pipe") / "data"
-    data = generate(START, DAYS, seed=42)
-    mess.apply(data, list(mess.MESS_STEPS), seed=42, start=START, end=START + timedelta(days=DAYS - 1))
-    write(data, out)
-    (out / "_manifest.json").write_text(json.dumps({"start": START.isoformat(), "days": DAYS}))
-
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(create_app(out, day=1), port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    write_dataset(out, START, DAYS, seed=42)
+    with serve(out) as url:
+        yield url
 
 
 @pytest.fixture()
