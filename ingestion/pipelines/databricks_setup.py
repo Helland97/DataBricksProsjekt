@@ -48,6 +48,19 @@ def running_on_databricks() -> bool:
     return "DATABRICKS_RUNTIME_VERSION" in os.environ
 
 
+def use_catalog_from_config() -> None:
+    """Pass destination.databricks.catalog (config.toml) on to dlt's credentials.catalog.
+
+    The catalog can't be written as [destination.databricks.credentials] in config.toml: dlt treats the whole
+    credentials section as a secret, and when there's no secrets.toml (the Databricks job) it refuses to read
+    it from config.toml. Without any catalog, dlt would silently use the workspace's default catalog.
+    An environment variable that's already set still wins.
+    """
+    catalog = dlt.config.get("destination.databricks.catalog")
+    if catalog:
+        os.environ.setdefault("DESTINATION__DATABRICKS__CREDENTIALS__CATALOG", catalog)
+
+
 def use_azure_cli_auth() -> None:
     if running_on_databricks():
         # There's no `az` here. The Databricks SDK's default auth (the same fallback dlt uses) picks up the
@@ -70,6 +83,7 @@ def destination(name: str) -> str | Destination:
     if name == "duckdb":
         return "duckdb"
     if name == "databricks":
+        use_catalog_from_config()
         use_azure_cli_auth()
         # With an Entra (az login) token the SQL connector first tries to swap it for a Databricks token,
         # warns when that fails, and then uses the Entra token as-is, which works. Hide that noise.
