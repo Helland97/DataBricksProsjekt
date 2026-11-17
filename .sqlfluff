@@ -23,3 +23,9 @@ extended_capitalisation_policy = lower
 capitalisation_policy = lower
 [sqlfluff:rules:capitalisation.identifiers]
 extended_capitalisation_policy = lower
+
+# Stand-ins for macros/source_columns.sql. sqlfluff has no warehouse to ask and doesn't know dbt's return(),
+# so here every source column and table "exists". That's the same as what dbt does at parse time.
+[sqlfluff:templater:jinja:macros]
+source_has_column = {% macro source_has_column(source_name, table_name, column_name) %}true{% endmacro %}
+source_exists = {% macro source_exists(source_name, table_name) %}true{% endmacro %}
