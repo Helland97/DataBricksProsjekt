@@ -48,7 +48,7 @@ variable "github_token" {
 }
 
 variable "job_schedule_paused" {
-  description = "Keep the daily dbt job schedule paused (run it manually until the pipeline is ready)."
+  description = "Keep the daily regnskap-daily schedule paused (run it manually until the pipeline is ready)."
   type        = bool
   default     = true
 }
@@ -57,4 +57,10 @@ variable "ci_principal" {
   description = "Application (client) id of the CI service principal gh-dbxprosjekt-ci (STEG5 section 2). Null = no CI grants."
   type        = string
   default     = null
+}
+
+variable "alert_emails" {
+  description = "Email addresses that get a message when the job fails. Set in terraform.tfvars, not in code (public repo)."
+  type        = list(string)
+  default     = []
 }
