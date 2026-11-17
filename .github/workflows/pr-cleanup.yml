@@ -1,0 +1,51 @@
+name: pr-cleanup
+
+# Drops the schemas a PR build created (STEG5-PLAN.md section 7.4):
+#   - when a PR closes (merged or not): pr_<n>_*
+#   - every Monday, and on demand: every pr_* schema whose PR is no longer open, in case a cleanup failed
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure
+  pull-requests: read # gh pr list, for the weekly sweep
+
+jobs:
+  cleanup:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    environment: ci
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      # The macros from main, never from the PR: cleanup code that drops schemas must be the reviewed version.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: ./.github/actions/dbt-ci-profile
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "dbt/uv.lock"
+      - run: uv sync --locked
+      - run: uv run dbt deps
+
+      - name: Drop this PR's schemas
+        if: github.event_name == 'pull_request'
+        run: |
+          uv run dbt run-operation drop_pr_schemas --args "{prefix: pr_${{ github.event.pull_request.number }}_}"
+
+      - name: Drop schemas of PRs that aren't open any more
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open_prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 500 --json number --jq '[.[].number]')
+          echo "open PRs: $open_prs"
+          uv run dbt run-operation drop_stale_pr_schemas --args "{open_prs: $open_prs}"

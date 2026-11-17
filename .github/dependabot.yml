@@ -6,7 +6,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
@@ -14,7 +14,7 @@ updates:
   - package-ecosystem: uv
     directories: ["/ingestion", "/dbt"]
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       python:
         patterns: ["*"]
@@ -22,4 +22,4 @@ updates:
   - package-ecosystem: terraform
     directories: ["/infra/01-azure", "/infra/02-databricks"]
     schedule:
-      interval: weekly
+      interval: monthly

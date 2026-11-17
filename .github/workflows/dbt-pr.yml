@@ -1,0 +1,104 @@
+name: dbt-pr
+
+# Builds every PR's dbt project against the real bronze, into its own schemas (pr_<n>_silver, pr_<n>_gold,
+# pr_<n>_audit), with all tests including unit tests. STEG5-PLAN.md section 7.3.
+#
+# Runs on EVERY PR and decides inside whether there's anything to build. A workflow limited with `paths:`
+# never reports on PRs outside those paths, and a required check that never reports blocks the merge forever.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure as gh-dbxprosjekt-ci
+
+concurrency:
+  group: dbt-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true # a new push cancels the build of the old one
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dbt: ${{ steps.diff.outputs.dbt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD \
+              | grep -qE '^(dbt/|\.github/workflows/dbt-pr\.yml$|\.github/actions/dbt-ci-profile/)'; then
+            echo "dbt=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dbt=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: changes
+    # Not for forks (they get no OIDC token or secrets) and not for Dependabot (same reason). For a Dependabot
+    # PR that bumps dbt, push any commit to its branch: the build then runs as you.
+    if: >-
+      needs.changes.outputs.dbt == 'true'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    environment: ci
+    runs-on: ubuntu-latest
+    env:
+      DBT_SCHEMA_PREFIX: pr_${{ github.event.pull_request.number }}_ # see dbt/macros/generate_schema_name.sql
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/dbt-ci-profile
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "dbt/uv.lock"
+      - run: uv sync --locked
+      - run: uv run dbt deps
+      - run: uv run dbt build # everything, unit tests included, into pr_<n>_*
+
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import collections, json, pathlib
+          path = pathlib.Path("target/run_results.json")
+          if not path.exists():
+              print("dbt stopped before it ran anything (no run_results.json). See the log.")
+              raise SystemExit
+          results = json.loads(path.read_text())["results"]
+          counts = collections.Counter(r["status"] for r in results)
+          print("### dbt build: " + ", ".join(f"{n} {s}" for s, n in sorted(counts.items())))
+          problems = [r for r in results if r["status"] in ("error", "fail", "warn")]
+          if problems:
+              print("\n| status | node | message |\n|---|---|---|")
+              for r in problems:
+                  message = (r.get("message") or "").splitlines()[0][:150] if r.get("message") else ""
+                  print(f"| {r['status']} | `{r['unique_id']}` | {message} |")
+          PY
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-target-pr-${{ github.event.pull_request.number }}
+          path: |
+            dbt/target/run_results.json
+            dbt/target/manifest.json
+          if-no-files-found: ignore
+
+  # The ONLY check from this workflow that branch protection requires. Passes when the build passed or
+  # was skipped (no dbt changes), fails when it failed.
+  dbt-pr-ok:
+    if: always()
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Did everything pass (or get skipped)?
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi
