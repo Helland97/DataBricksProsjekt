@@ -47,8 +47,9 @@ from pipelines.regnskap import SESSION, compare, run_days
 SIM_START = date(2026, 10, 1)
 SIM_DAYS = 30
 SEED = 42
-# The real date that counts as simulated day 1 for --day auto. Set it when the schedule is turned on (section 6).
-SIM_ANCHOR = date(2026, 12, 1)
+# The real date that counts as simulated day 1 for --day auto. Set when the schedule was turned on
+# (STEG5 section 6.6): bronze was on day 1, so the first scheduled run (2026-11-18) loads day 2.
+SIM_ANCHOR = date(2026, 11, 17)
 
 
 class BronzeMismatch(Exception):
