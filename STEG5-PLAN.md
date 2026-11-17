@@ -93,15 +93,18 @@ $APP   = az ad app create --display-name "gh-dbxprosjekt-ci" --query appId -o ts
 az ad sp create --id $APP
 
 # One federated credential per event type the workflows use. Subjects are exact matches.
+# GitHub sends the subject with the immutable ids of the owner and the repo (owner@id/repo@id), not just
+# "repo:Helland97/DataBricksProsjekt:...". With the plain names, login fails with AADSTS700213. To see the
+# exact subject GitHub sends, read the AADSTS700213 message from a failed azure/login step.
 $fc = @{ issuer = "https://token.actions.githubusercontent.com"; audiences = @("api://AzureADTokenExchange") }
 az ad app federated-credential create --id $APP --parameters (
-  $fc + @{ name = "pull-request"; subject = "repo:Helland97/DataBricksProsjekt:pull_request" } | ConvertTo-Json -Compress)
+  $fc + @{ name = "pull-request"; subject = "repo:Helland97@100603451/DataBricksProsjekt@1451395175:pull_request" } | ConvertTo-Json -Compress)
 az ad app federated-credential create --id $APP --parameters (
-  $fc + @{ name = "main"; subject = "repo:Helland97/DataBricksProsjekt:ref:refs/heads/main" } | ConvertTo-Json -Compress)
+  $fc + @{ name = "main"; subject = "repo:Helland97@100603451/DataBricksProsjekt@1451395175:ref:refs/heads/main" } | ConvertTo-Json -Compress)
 # A job with `environment: ci` (dbt-pr.yml, pr-cleanup.yml) gets the subject "...:environment:ci" instead of
 # "...:pull_request". Without this credential, those jobs fail with AADSTS70021 (no matching federated identity).
 az ad app federated-credential create --id $APP --parameters (
-  $fc + @{ name = "env-ci"; subject = "repo:Helland97/DataBricksProsjekt:environment:ci" } | ConvertTo-Json -Compress)
+  $fc + @{ name = "env-ci"; subject = "repo:Helland97@100603451/DataBricksProsjekt@1451395175:environment:ci" } | ConvertTo-Json -Compress)
 
 # Read the infrastructure (plan only, never apply from CI in this step):
 az role assignment create --assignee $APP --role Reader --scope "/subscriptions/$SUB/resourceGroups/rg-dbxprosjekt-dev"
