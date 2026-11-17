@@ -52,6 +52,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/dbt-ci-profile
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          databricks-host: ${{ vars.DATABRICKS_HOST }}
+          databricks-http-path: ${{ vars.DATABRICKS_HTTP_PATH }}
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true

@@ -2,21 +2,38 @@ name: dbt profile for the CI service principal
 description: >
   Logs in to Azure as gh-dbxprosjekt-ci with GitHub OIDC (no stored secret), gets a short-lived Databricks token
   and writes a dbt profile outside the repo (profiles.yml is gitignored). Used by dbt-pr.yml and pr-cleanup.yml.
-  Needs `permissions: id-token: write` and the repository variables from STEG5-PLAN.md section 2.
+  Needs `permissions: id-token: write`. The values come in as inputs, because a composite action can't read
+  the `vars` context itself: the calling workflow passes the repository variables from STEG5-PLAN.md section 2.
+inputs:
+  client-id:
+    description: Application (client) id of gh-dbxprosjekt-ci (vars.AZURE_CLIENT_ID)
+    required: true
+  tenant-id:
+    description: Entra tenant id (vars.AZURE_TENANT_ID)
+    required: true
+  subscription-id:
+    description: Azure subscription id (vars.AZURE_SUBSCRIPTION_ID)
+    required: true
+  databricks-host:
+    description: Workspace URL, with or without https:// (vars.DATABRICKS_HOST)
+    required: true
+  databricks-http-path:
+    description: SQL warehouse HTTP path (vars.DATABRICKS_HTTP_PATH)
+    required: true
 runs:
   using: composite
   steps:
     - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
       with:
-        client-id: ${{ vars.AZURE_CLIENT_ID }}
-        tenant-id: ${{ vars.AZURE_TENANT_ID }}
-        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
 
     - name: Databricks token and dbt profile
       shell: bash
       env:
-        DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-        DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+        DATABRICKS_HOST: ${{ inputs.databricks-host }}
+        DATABRICKS_HTTP_PATH: ${{ inputs.databricks-http-path }}
       run: |
         # 2ff814a6-... is the fixed Entra id of Azure Databricks. The token lives about an hour and is masked in logs.
         token=$(az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d --query accessToken -o tsv)
