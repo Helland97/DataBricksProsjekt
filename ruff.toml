@@ -10,6 +10,9 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [lint.per-file-ignores]
 # Databricks notebooks: spark, dbutils and display are injected by the runtime, and imports come after %pip cells
 "ingestion/notebooks/*" = ["F821", "E402"]
+# The job script has to fix sys.path before it can import the project's modules
+"ingestion/jobs/*" = ["E402"]
+
 
 [lint.flake8-bugbear]
 # dlt's documented idiom: `updated_at = dlt.sources.incremental(...)` as a default argument. Not a bug here.
