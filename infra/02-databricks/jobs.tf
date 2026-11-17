@@ -26,6 +26,8 @@ locals {
   ]
 }
 
+# The environment and task blocks are sorted by key (dbt before ingest, dbt_build before ingest): Databricks
+# returns them sorted, and any other order shows up as a change on every terraform plan, also in CI.
 resource "databricks_job" "daily" {
   name                = "regnskap-daily"
   description         = "dlt -> bronze, then dbt build (silver/gold + data tests). Code from Git, branch ${var.git_branch}."
@@ -50,14 +52,6 @@ resource "databricks_job" "daily" {
   }
 
   environment {
-    environment_key = "ingest"
-    spec {
-      environment_version = "4" # serverless environment 4 = Python 3.12, which ingestion/pyproject.toml requires
-      dependencies        = local.ingest_dependencies
-    }
-  }
-
-  environment {
     environment_key = "dbt"
     spec {
       environment_version = "4"
@@ -65,22 +59,11 @@ resource "databricks_job" "daily" {
     }
   }
 
-  task {
-    task_key                  = "ingest"
-    environment_key           = "ingest"
-    max_retries               = 1
-    min_retry_interval_millis = 60000
-    timeout_seconds           = 1800
-
-    spark_python_task {
-      source      = "GIT"
-      python_file = "ingestion/jobs/daily_load.py" # written in section 4
-      parameters = [
-        "--day", "{{job.parameters.sim_day}}",
-        "--run-date", "{{job.start_time.iso_date}}",
-        "--server-hostname", trimprefix(local.azure.workspace_url, "https://"),
-        "--http-path", databricks_sql_endpoint.this.odbc_params[0].path,
-      ]
+  environment {
+    environment_key = "ingest"
+    spec {
+      environment_version = "4" # serverless environment 4 = Python 3.12, which ingestion/pyproject.toml requires
+      dependencies        = local.ingest_dependencies
     }
   }
 
@@ -108,6 +91,25 @@ resource "databricks_job" "daily" {
     }
   }
 
+  task {
+    task_key                  = "ingest"
+    environment_key           = "ingest"
+    max_retries               = 1
+    min_retry_interval_millis = 60000
+    timeout_seconds           = 1800
+
+    spark_python_task {
+      source      = "GIT"
+      python_file = "ingestion/jobs/daily_load.py" # written in section 4
+      parameters = [
+        "--day", "{{job.parameters.sim_day}}",
+        "--run-date", "{{job.start_time.iso_date}}",
+        "--server-hostname", trimprefix(local.azure.workspace_url, "https://"),
+        "--http-path", databricks_sql_endpoint.this.odbc_params[0].path,
+      ]
+    }
+  }
+
   schedule {
     quartz_cron_expression = "0 0 6 * * ?"
     timezone_id            = "Europe/Oslo"
@@ -116,7 +118,7 @@ resource "databricks_job" "daily" {
 
   # Only when there's an address to send to. An empty block would show up as a change on every plan.
   dynamic "email_notifications" {
-    for_each = length(var.alert_emails) > 0 ? [1] : []
+    for_each = nonsensitive(length(var.alert_emails)) > 0 ? [1] : [] # how many is not a secret, who is
     content {
       on_failure                = var.alert_emails
       no_alert_for_skipped_runs = true
