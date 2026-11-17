@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 # Run as a script, Python only puts jobs/ on sys.path. The modules below live in ingestion/.
@@ -28,7 +28,7 @@ sys.path.insert(0, str(INGESTION_DIR))
 import dlt
 from fake_api.serve import serve
 from generator.generate import write_dataset
-from pipelines.databricks_setup import destination
+from pipelines.databricks_setup import destination, running_on_databricks
 from pipelines.regnskap import compare, run_days
 
 # The generated dataset. Must match what bronze was loaded from (generator defaults).
@@ -66,6 +66,22 @@ def check_bronze(stats: dict[str, dict]) -> None:
             f"  {t}: missing={s['missing']} duplicates={s['duplicates']} stale={s['stale']}" for t, s in bad.items()
         )
         raise BronzeMismatch(f"Bronze doesn't match the source after the load:\n{details}")
+
+
+def sim_date(day: int) -> date:
+    """The calendar date of a simulated day in the generated data (day 1 = SIM_START)."""
+    return SIM_START + timedelta(days=day - 1)
+
+
+def publish_sim_date(day: int) -> None:
+    """Hand the simulated date to the next task (dbt_build) as a Databricks task value. dbt uses it as
+    snapshot_time, so check-strategy snapshot versions get the simulated date and not the real run date.
+    Does nothing outside Databricks: there are no task values on a laptop."""
+    if not running_on_databricks():
+        return
+    from databricks.sdk.runtime import dbutils  # only exists on Databricks compute
+
+    dbutils.jobs.taskValues.set(key="sim_date", value=sim_date(day).isoformat())
 
 
 def configure_databricks(server_hostname: str | None, http_path: str | None) -> None:
@@ -109,6 +125,9 @@ def main(argv: list[str] | None = None) -> None:
             run_days(pipeline, api_url, [day])  # raises ContractViolation if a schema contract stops the load
             stats = compare(pipeline, api_url)
     check_bronze(stats)
+    publish_sim_date(day)
+    print(f"Bronze matches the source. Simulated date for dbt: {sim_date(day)}")
+
     print("Bronze matches the source.")
 
 

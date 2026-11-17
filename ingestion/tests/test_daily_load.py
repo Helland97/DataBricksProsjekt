@@ -3,7 +3,7 @@
 from datetime import date
 
 import pytest
-from jobs.daily_load import BronzeMismatch, check_bronze, resolve_day
+from jobs.daily_load import BronzeMismatch, check_bronze, resolve_day, sim_date
 
 ANCHOR = date(2026, 12, 1)
 
@@ -41,3 +41,8 @@ def test_clean_bronze_passes():
 def test_any_difference_fails_and_names_the_table():
     with pytest.raises(BronzeMismatch, match="invoices: missing=1"):
         check_bronze({"invoices": {**CLEAN, "missing": 1}, "customers": CLEAN})
+
+
+def test_sim_date_counts_from_the_first_simulated_day():
+    assert sim_date(1) == date(2026, 10, 1)
+    assert sim_date(30) == date(2026, 10, 30)
