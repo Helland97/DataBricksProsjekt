@@ -13,6 +13,7 @@ log_level = "WARNING"
 staging_volume_name = "lakehouse_dev.bronze.dlt_staging"
 # Delete the uploaded files after each successful COPY INTO, so the volume doesn't grow forever.
 keep_staged_files = false
-
-[destination.databricks.credentials]
+# Unity Catalog catalog for bronze. NOT under [destination.databricks.credentials]: dlt treats that whole
+# section as a secret, and without a secrets.toml (the Databricks job) it refuses to read it from this file
+# (ValueNotSecretException, STEG5 section 6.4). pipelines/databricks_setup.py passes it on to dlt.
 catalog = "lakehouse_dev"
