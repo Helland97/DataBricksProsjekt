@@ -33,6 +33,6 @@ output "git_folder_path" {
   value = databricks_repo.project.path
 }
 
-output "dbt_job_url" {
-  value = databricks_job.dbt.url
+output "job_url" {
+  value = databricks_job.daily.url
 }

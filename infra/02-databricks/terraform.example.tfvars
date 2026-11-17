@@ -12,3 +12,6 @@
 
 # Application (client) id of the CI service principal (STEG5-PLAN.md section 2). Leave out = no CI grants.
 # ci_principal = "00000000-0000-0000-0000-000000000000"
+
+# Who gets an email when regnskap-daily fails.
+# alert_emails = ["you@example.com"]
