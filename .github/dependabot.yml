@@ -1,0 +1,25 @@
+# Weekly update PRs, grouped so there's one PR per ecosystem instead of one per package (STEG5 section 7.1).
+# A uv PR that bumps a package the Databricks job uses fails ci-ok (the pins check) until infra/02-databricks/jobs.tf
+# is updated in the same PR. That's on purpose: the job must never silently run other versions than the tests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directories: ["/ingestion", "/dbt"]
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: terraform
+    directories: ["/infra/01-azure", "/infra/02-databricks"]
+    schedule:
+      interval: weekly
