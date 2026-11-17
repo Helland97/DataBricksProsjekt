@@ -1488,12 +1488,12 @@ dependencies = [
     { name = "dlt", extra = ["databricks", "duckdb", "parquet"] },
     { name = "faker" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -1502,14 +1502,12 @@ requires-dist = [
     { name = "dlt", extras = ["databricks", "duckdb", "parquet"], specifier = ">=1.32.0" },
     { name = "faker", specifier = ">=30" },
     { name = "fastapi", specifier = ">=0.162.3" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pytest", specifier = ">=8" },
-]
+dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "requests"

@@ -8,8 +8,9 @@ Run it locally the same way (as a script, not with -m), from the repo root:
     uv run --directory ingestion python jobs/daily_load.py --destination databricks --day 30
 
 The job has no fake API to call, so the script brings its own source. It generates the dataset
-(deterministic: same seed, same data) into a temp folder, serves it on 127.0.0.1 in a background thread,
-loads one simulated day, and then checks bronze against the source. Any difference fails the task.
+(deterministic: same seed, same data) into a temp folder, calls the FastAPI app in-process (no network:
+serverless compute blocks connections to 127.0.0.1, see fake_api/in_process.py), loads one simulated day,
+and then checks bronze against the source. Any difference fails the task.
 """
 
 from __future__ import annotations
@@ -37,10 +38,10 @@ INGESTION_DIR = Path(_this_file()).resolve().parents[1]
 sys.path.insert(0, str(INGESTION_DIR))
 
 import dlt
-from fake_api.serve import serve
+from fake_api.in_process import in_process
 from generator.generate import write_dataset
 from pipelines.databricks_setup import destination, running_on_databricks
-from pipelines.regnskap import compare, run_days
+from pipelines.regnskap import SESSION, compare, run_days
 
 # The generated dataset. Must match what bronze was loaded from (generator defaults).
 SIM_START = date(2026, 10, 1)
@@ -126,7 +127,7 @@ def main(argv: list[str] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="dl", ignore_cleanup_errors=True) as tmp:
         data_dir = Path(tmp) / "d"
         write_dataset(data_dir, SIM_START, SIM_DAYS, SEED)
-        with serve(data_dir) as api_url:
+        with in_process(data_dir, SESSION) as api_url:  # no network: serverless blocks 127.0.0.1
             pipeline = dlt.pipeline(
                 pipeline_name=f"regnskap_{args.destination}",  # same name as local runs = the same state in bronze
                 destination=destination(args.destination),
@@ -138,8 +139,6 @@ def main(argv: list[str] | None = None) -> None:
     check_bronze(stats)
     publish_sim_date(day)
     print(f"Bronze matches the source. Simulated date for dbt: {sim_date(day)}")
-
-    print("Bronze matches the source.")
 
 
 if __name__ == "__main__":

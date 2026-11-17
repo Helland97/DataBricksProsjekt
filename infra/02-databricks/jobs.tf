@@ -17,6 +17,7 @@ locals {
     "dlt[databricks,parquet]==1.32.0",
     "faker==40.52.0",
     "fastapi==0.162.3",
+    "httpx==0.28.1", # the in-process API client (fake_api/in_process.py)
     "uvicorn==0.54.0",
   ]
   dbt_dependencies = [

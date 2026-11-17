@@ -7,12 +7,14 @@ dependencies = [
     "dlt[databricks,duckdb,parquet]>=1.32.0",
     "faker>=30",
     "fastapi>=0.162.3",
+    # Starlette's TestClient needs httpx. The Databricks job calls the API in-process through it
+    # (fake_api/in_process.py), so it's a runtime dependency, not just for the tests.
+    "httpx>=0.28.1",
     "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=8",
 ]
 
