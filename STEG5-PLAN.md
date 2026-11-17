@@ -425,10 +425,19 @@ is worse than one that fails. This is the same check you ran by eye in step 2, n
    `dbt run-operation reset_snapshots`.
 4. *Run now* with `sim_day = 2`. Check both tasks, the commit SHA on the run page, and row counts in gold.
 5. Run it again with `sim_day = 2`. Nothing should change (idempotency).
-6. Set `SIM_ANCHOR` to tomorrow, `job_schedule_paused = false`, apply. From now on, don't load by hand. Every load
-   goes through the job.
-7. **Cost:** a daily run is a few minutes of serverless compute plus the warehouse (auto-stop 10 min). Pause the
-   schedule when you're not using the project.
+6. Set `SIM_ANCHOR` so that **the first scheduled run loads the day after the one bronze is on**:
+   `SIM_ANCHOR = (date of the first scheduled run) − (bronze's current day)`. Not simply "tomorrow": if bronze is
+   already ahead of the day `auto` computes, the run fails with `BronzeMismatch` (bronze is "ahead" of the source).
+   Merge the anchor change first, then set `job_schedule_paused = false` and apply. From now on, don't load by
+   hand. Every load goes through the job.
+   **Done 2026-11-17:** bronze was on day 1 after the manual runs, so `SIM_ANCHOR = 2026-11-17` and the first
+   scheduled run (2026-11-18 06:00) loads day 2. Day 30 is reached on 2026-12-16; after that every run loads
+   nothing new.
+7. **Cost:** a run takes about 2–3 minutes of serverless compute plus the warehouse (auto-stop 10 min). Pause the
+   schedule when you're not using the project, **with Terraform** (`job_schedule_paused = true` + apply), not the
+   Pause button in the UI: Terraform would put it back on the next apply. While paused, `--day auto` keeps
+   counting real days, so the first run after a pause jumps ahead. That's fine: a later day includes everything
+   that arrived up to it.
 
 ## 7. CI: GitHub Actions
 
