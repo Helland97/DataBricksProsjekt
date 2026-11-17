@@ -38,16 +38,27 @@ from datetime import UTC, datetime
 from typing import Any
 
 import dlt
-import requests  # plain requests for the clock and the comparison: fail fast if the API is down
+import requests
 from dlt.common.schema.exceptions import DataValidationError
-from dlt.sources.helpers import requests as dlt_requests  # retrying client, for actual loading
 from dlt.sources.rest_api import rest_api_resources
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from pipelines.databricks_setup import destination as make_destination
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 INITIAL_CURSOR = "2000-01-01T00:00:00Z"  # first run: fetch everything
 DAY = 24 * 3600  # lag on a datetime cursor is in seconds
+
+# One HTTP session for everything that talks to the API: dlt's REST client, the hand-written resource, the
+# clock and the comparison. Locally and in the tests it's plain HTTP. The Databricks job mounts an in-process
+# adapter on it (fake_api/in_process.py), because serverless compute blocks connections to 127.0.0.1.
+# Server errors (5xx) on GET are retried; a refused connection fails at once ("is the API running?").
+SESSION = requests.Session()
+SESSION.mount(
+    "http://",
+    HTTPAdapter(max_retries=Retry(total=3, connect=0, backoff_factor=0.5, status_forcelist=(500, 502, 503, 504))),
+)
 
 # resource -> (API path, primary key)
 ENTITIES = {
@@ -117,6 +128,7 @@ def rest_api_config(api_url: str, invoices_disposition: str, gl_lag_days: float,
     return {
         "client": {
             "base_url": api_url,
+            "session": SESSION,
             "paginator": {"type": "page_number", "base_page": 1, "page_param": "page", "total_path": "total_pages"},
         },
         "resource_defaults": {"endpoint": {"data_selector": "data"}},
@@ -142,7 +154,7 @@ def gl_entries_handwritten(
     since = updated_at.last_value
     page: int | None = 1
     while page is not None:
-        resp = dlt_requests.get(
+        resp = SESSION.get(
             f"{api_url}/gl-entries",
             params={"updated_since": since, "page": page, "page_size": 100},
             timeout=30,
@@ -179,17 +191,17 @@ def regnskap(
 
 
 def set_clock(api_url: str, day: int) -> dict:
-    resp = requests.post(f"{api_url}/_clock", json={"day": day}, timeout=10)
+    resp = SESSION.post(f"{api_url}/_clock", json={"day": day}, timeout=10)
     resp.raise_for_status()
     return resp.json()
 
 
 def fetch_all(api_url: str, path: str) -> list[dict]:
     if path == "accounts":
-        return requests.get(f"{api_url}/accounts", timeout=30).json()["data"]
+        return SESSION.get(f"{api_url}/accounts", timeout=30).json()["data"]
     rows, page = [], 1
     while page is not None:
-        body = requests.get(f"{api_url}/{path}", params={"page": page, "page_size": 1000}, timeout=30).json()
+        body = SESSION.get(f"{api_url}/{path}", params={"page": page, "page_size": 1000}, timeout=30).json()
         rows += body["data"]
         page = body["next_page"]
     return rows
@@ -335,7 +347,7 @@ def main() -> None:
     args = p.parse_args()
 
     try:
-        clock = requests.get(f"{args.api_url}/_clock", timeout=5).json()
+        clock = SESSION.get(f"{args.api_url}/_clock", timeout=5).json()
     except requests.exceptions.ConnectionError:
         raise SystemExit(
             f"The fake API isn't running on {args.api_url}. Start it: uv run uvicorn fake_api.app:app"
@@ -388,7 +400,7 @@ def run_days(
     first: otherwise it stays pending, and dlt retries it on the next run *instead of* extracting new data.
     """
     for i, day in enumerate(days):
-        clock = set_clock(api_url, day) if day is not None else requests.get(f"{api_url}/_clock", timeout=5).json()
+        clock = set_clock(api_url, day) if day is not None else SESSION.get(f"{api_url}/_clock", timeout=5).json()
         source = regnskap(
             api_url=api_url,
             invoices_disposition=invoices,
