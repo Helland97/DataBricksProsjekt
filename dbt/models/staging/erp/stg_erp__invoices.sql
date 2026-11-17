@@ -6,8 +6,17 @@
 ) }}
 
 
+{#- Columns that only exist in bronze from the day 15 schema change. Before that, add them as nulls,
+    so the rest of the model (and silver) has the same columns on every day. -#}
+{%- set late_columns = {'amount_incl_vat__v_text': 'string', 'currency': 'string', 'kid': 'string'} %}
+
 with source as (
-    select * from {{ source('erp', 'invoices') }}
+    select
+        *
+        {%- for column, data_type in late_columns.items() if not source_has_column('erp', 'invoices', column) %},
+        cast(null as {{ data_type }}) as {{ column }}
+        {%- endfor %}
+    from {{ source('erp', 'invoices') }}
     {% if is_incremental() %}
     where {{ dlt_loaded_at('_dlt_load_id') }} > (select max(loaded_at) from {{ this }})
     {% endif %}
