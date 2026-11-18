@@ -3,6 +3,10 @@
 --  2) Per invoice: open amount from the GL = what the invoice status says
 --     (sent/overdue = the full amount, paid/credited = 0). Only on the latest date, because
 --     status is the CURRENT status and can't be compared with the GL at an earlier date.
+--     Invoices with a voucher in quarantine (unbalanced, a GL line hasn't arrived yet) are left out:
+--     the GL side is incomplete on purpose (only balanced vouchers count), so they are reconciling
+--     items, not errors. assert_no_stale_unbalanced_vouchers fails if one waits longer than allowed.
+--     Found by the first scheduled run (STEG5): it saw bronze mid-way, before the late lines arrived.
 
 {%- set as_of_date = var('as_of_date') %}
 
@@ -34,7 +38,15 @@ total_check as (
 )
 
 {% if not as_of_date %}
-, per_invoice_check as (
+, in_quarantine as (
+    -- Invoices with at least one unbalanced voucher: the invoice posting, a payment or a credit note.
+    select distinct v.invoice_id
+    from {{ ref('int_gl_vouchers') }} as v
+    where not v.is_balanced
+      and v.invoice_id is not null
+),
+
+per_invoice_check as (
     select
         'invoice'                as check_name,
         i.invoice_id,
@@ -43,7 +55,10 @@ total_check as (
     from {{ ref('fct_invoices') }} as i
     left join {{ ref('int_ar_open_items') }} as o
         on o.invoice_id = i.invoice_id
-    where case when i.status in ('sent', 'overdue') then i.amount_incl_vat else 0 end
+    left join in_quarantine as q
+        on q.invoice_id = i.invoice_id
+    where q.invoice_id is null
+      and case when i.status in ('sent', 'overdue') then i.amount_incl_vat else 0 end
           <> coalesce(o.open_amount, 0)
 )
 
